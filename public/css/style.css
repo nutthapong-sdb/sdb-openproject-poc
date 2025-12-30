@@ -1,0 +1,177 @@
+:root {
+    --primary-color: #FF8F00;
+    /* Deep Orange */
+    --primary-hover: #F57C00;
+    --bg-color: #121212;
+    /* Dark Background */
+    --card-bg: #1E1E1E;
+    --text-color: #EEEEEE;
+    --text-muted: #AAAAAA;
+    --input-bg: #2C2C2C;
+    --border-color: #333333;
+    --danger-color: #CF6679;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: 'Outfit', sans-serif;
+}
+
+body {
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+}
+
+.container {
+    width: 100%;
+    max-width: 450px;
+    background-color: var(--card-bg);
+    padding: 2.5rem;
+    border-radius: 16px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    border: 1px solid var(--border-color);
+}
+
+header {
+    margin-bottom: 2rem;
+    text-align: center;
+}
+
+header h1 {
+    font-weight: 600;
+    color: var(--primary-color);
+    margin-bottom: 0.5rem;
+}
+
+header p {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
+.form-group {
+    margin-bottom: 1.5rem;
+}
+
+label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-size: 0.95rem;
+    color: var(--text-color);
+    font-weight: 500;
+}
+
+input[type="text"],
+select {
+    width: 100%;
+    padding: 12px 16px;
+    background-color: var(--input-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-color);
+    font-size: 1rem;
+    transition: all 0.3s ease;
+    appearance: none;
+    /* Remove default arrow for custom styling if needed */
+}
+
+select {
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white'%3e%3cpath d='M7 10l5 5 5-5z'/%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right 1rem center;
+    background-size: 1.5em;
+    padding-right: 2.5rem;
+}
+
+input[type="text"]:focus,
+select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(255, 143, 0, 0.2);
+}
+
+button {
+    width: 100%;
+    padding: 12px;
+    background-color: var(--primary-color);
+    color: #000;
+    font-weight: 600;
+    border: none;
+    border-radius: 8px;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background-color 0.3s ease, transform 0.2s ease;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+}
+
+button:hover {
+    background-color: var(--primary-hover);
+    transform: translateY(-2px);
+}
+
+button:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+    transform: none;
+}
+
+footer {
+    margin-top: 2rem;
+    text-align: center;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+/* Loader */
+.loader {
+    border: 3px solid rgba(0, 0, 0, 0.3);
+    border-radius: 50%;
+    border-top: 3px solid #000;
+    width: 16px;
+    height: 16px;
+    animation: spin 1s linear infinite;
+    display: none;
+}
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+/* SweetAlert customization */
+div:where(.swal2-container) div:where(.swal2-popup) {
+    background: var(--card-bg) !important;
+    color: var(--text-color) !important;
+    border: 1px solid var(--border-color);
+}
+
+div:where(.swal2-container) .swal2-title {
+    color: var(--primary-color) !important;
+}
+
+.colored-toast.swal2-icon-success {
+    background-color: #77DD77 !important;
+    /* Pastel Green */
+    color: #fff !important;
+    border: 1px solid #77DD77 !important;
+}
+
+.colored-toast.swal2-icon-success .swal2-title,
+.colored-toast.swal2-icon-success .swal2-content,
+.colored-toast.swal2-icon-success .swal2-html-container {
+    color: #333333 !important;
+    /* Darker text for better contrast on pastel */
+}
