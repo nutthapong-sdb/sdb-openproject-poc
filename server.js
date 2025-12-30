@@ -14,7 +14,6 @@ app.use(express.static('public'));
 
 const HOST = process.env.OPENPROJECT_HOST;
 const API_KEY = process.env.OPENPROJECT_API_KEY;
-// PROJECT_ID is now dynamic, but we can keep a default if needed
 
 if (!HOST || !API_KEY) {
     console.error('Error: Please set OPENPROJECT_HOST and OPENPROJECT_API_KEY in .env file');
@@ -104,6 +103,7 @@ const db = new sqlite3.Database(dbFile);
 db.serialize(() => {
     db.run("CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY, project_id TEXT UNIQUE, name TEXT, updated_at DATETIME)");
     db.run("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)");
+    db.run("CREATE TABLE IF NOT EXISTS local_assignees (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, openproject_id TEXT)");
 });
 
 // Helper to save projects to DB (Upsert Logic)
@@ -165,18 +165,13 @@ async function updateProjectsCache() {
 const UPDATE_INTERVAL = 6 * 60 * 60 * 1000;
 setInterval(updateProjectsCache, UPDATE_INTERVAL);
 
-// Initial check: Always try to sync on startup for freshness, regardless of expiry, 
-// OR just rely on the interval. User wanted "check new projects", which implies fetching.
-// Let's keep the initial fetch to ensure we have data if DB is missing.
+// Initial check
 db.get("SELECT value FROM meta WHERE key = 'last_sync'", (err, row) => {
     if (err || !row) {
         console.log('No local cache found. Fetching initial data...');
         updateProjectsCache();
     } else {
         console.log(`Database loaded. Last sync: ${new Date(row.value).toLocaleString()}`);
-        // We can run an update in background if we want strictly "every 6 hours" from now
-        // or immediately if we want to ensure up-to-date on restart.
-        // Given user request "check for new data", running it now is safer.
         updateProjectsCache();
     }
 });
@@ -203,21 +198,186 @@ app.get('/api/projects', (req, res) => {
     });
 });
 
-// API to create Work Package (Direct Puppeteer - No Caching needed for write)
+// --- Local Assignees API ---
+
+// GET All Local Assignees
+app.get('/api/assignees', (req, res) => {
+    db.all("SELECT * FROM local_assignees ORDER BY name ASC", [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
+// Helper to search user in a specific project
+async function findUserInProject(name, projectId) {
+    try {
+        console.log(`Searching for '${name}' in Project ${projectId}...`);
+        const url = `${HOST}/api/v3/projects/${projectId}/available_assignees`;
+        const result = await puppeteerFetch(url, { method: 'GET' });
+
+        if (result.status >= 200 && result.status < 300 && result.data._embedded && result.data._embedded.elements) {
+            const user = result.data._embedded.elements.find(el => el._type === 'User' && el.name.toLowerCase().includes(name.toLowerCase()));
+            if (user) {
+                return user.id.toString();
+            }
+        }
+    } catch (e) {
+        console.error(`Search failed for project ${projectId}:`, e.message);
+    }
+    return null;
+}
+
+// ADD Local Assignee
+app.post('/api/assignees', async (req, res) => {
+    const { name, projectId } = req.body;
+
+    if (!name) return res.status(400).json({ error: 'Name is required' });
+
+    let finalOpId = null;
+
+    // Search Strategy:
+    // 1. If project context provided, search there first.
+    // 2. If not found or no context, search in default projects (Production: 614, MA: 615)
+    // 3. This covers the "Global" search requirement without global permissions.
+
+    const searchQueue = [];
+    if (projectId) searchQueue.push(projectId);
+    searchQueue.push('614'); // Default Production
+    searchQueue.push('615'); // Default MA
+
+    // Remove duplicates
+    const uniqueQueue = [...new Set(searchQueue)];
+
+    for (const pid of uniqueQueue) {
+        finalOpId = await findUserInProject(name, pid);
+        if (finalOpId) {
+            console.log(`Found User '${name}' (ID: ${finalOpId}) in Project ${pid}`);
+            break;
+        }
+    }
+
+    if (!finalOpId) {
+        return res.status(404).json({ error: `Could not find OpenProject user matching '${name}'. Please check the spelling.` });
+    }
+
+    db.get("SELECT * FROM local_assignees WHERE openproject_id = ?", [finalOpId], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (row) {
+            return res.status(409).json({ error: `Duplicate: '${row.name}' already uses ID ${finalOpId}.` });
+        }
+
+        db.run("INSERT INTO local_assignees (name, openproject_id) VALUES (?, ?)", [name, finalOpId], function (err) {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ id: this.lastID, name: name, openproject_id: finalOpId });
+        });
+    });
+});
+
+// UPDATE Local Assignee
+app.put('/api/assignees/:id', async (req, res) => {
+    const { name, projectId } = req.body;
+    const { id } = req.params;
+
+    if (!name) return res.status(400).json({ error: 'Name is required' });
+
+    let finalOpId = null;
+
+    const searchQueue = [];
+    if (projectId) searchQueue.push(projectId);
+    searchQueue.push('614');
+    searchQueue.push('615');
+
+    const uniqueQueue = [...new Set(searchQueue)];
+
+    for (const pid of uniqueQueue) {
+        finalOpId = await findUserInProject(name, pid);
+        if (finalOpId) {
+            console.log(`Found User '${name}' (ID: ${finalOpId}) in Project ${pid}`);
+            break;
+        }
+    }
+
+    if (!finalOpId) {
+        return res.status(404).json({ error: `Could not find OpenProject user matching '${name}'. Please check the spelling.` });
+    }
+
+    // Check for duplicate OpenProject ID (excluding current record)
+    db.get("SELECT * FROM local_assignees WHERE openproject_id = ? AND id != ?", [finalOpId, id], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (row) {
+            return res.status(409).json({ error: `Duplicate: '${row.name}' already uses ID ${finalOpId}.` });
+        }
+
+        db.run("UPDATE local_assignees SET name = ?, openproject_id = ? WHERE id = ?", [name, finalOpId, id], function (err) {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ message: 'Updated successfully' });
+        });
+    });
+});
+
+// DELETE Local Assignee
+app.delete('/api/assignees/:id', (req, res) => {
+    const { id } = req.params;
+    db.run("DELETE FROM local_assignees WHERE id = ?", [id], function (err) {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ message: 'Deleted successfully' });
+    });
+});
+
+// Return empty list for old dynamic endpoint (Frontend will be updated to use /api/assignees)
+app.get('/api/projects/:id/assignees', (req, res) => {
+    res.json([]);
+});
+
+// API to create Work Package
 app.post('/api/work_packages', async (req, res) => {
-    const { projectId, subject } = req.body;
+    const { projectId, subject, assigneeId, startDate, dueDate, percentageDone } = req.body;
+    // Note: assigneeId here is the LOCAL database ID now, not the OpenProject ID directly.
 
     if (!projectId || !subject) {
         return res.status(400).json({ error: 'Missing projectId or subject' });
     }
 
     try {
-        console.log(`Creating Task '${subject}' in Project ${projectId}...`);
+        let openProjectAssigneeId = null;
+
+        // Lookup OpenProject ID from Local DB if assigneeId is provided
+        if (assigneeId) {
+            const assignee = await new Promise((resolve, reject) => {
+                db.get("SELECT openproject_id FROM local_assignees WHERE id = ?", [assigneeId], (err, row) => {
+                    if (err) reject(err);
+                    else resolve(row);
+                });
+            });
+            if (assignee && assignee.openproject_id) {
+                openProjectAssigneeId = assignee.openproject_id;
+            }
+        }
+
+        console.log(`Creating Task '${subject}' in Project ${projectId} with Assignee OP-ID: ${openProjectAssigneeId}...`);
         const url = `${HOST}/api/v3/projects/${projectId}/work_packages`;
 
         const payload = {
-            subject: subject
+            subject: subject,
+            percentageDone: parseInt(percentageDone) || 0,
+            startDate: startDate || null,
+            dueDate: dueDate || null,
+            "_links": {
+                "type": {
+                    "href": "/api/v3/types/1" // ID 1 is 'Task'
+                }
+            }
         };
+
+        if (openProjectAssigneeId) {
+            payload._links.assignee = {
+                href: `/api/v3/users/${openProjectAssigneeId}`
+            };
+        }
+
+        // Clean up nulls
+        if (!payload.startDate) delete payload.startDate;
+        if (!payload.dueDate) delete payload.dueDate;
 
         const result = await puppeteerFetch(url, {
             method: 'POST',
