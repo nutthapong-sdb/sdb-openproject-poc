@@ -228,6 +228,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const startDate = document.getElementById('startDate').value;
         const dueDate = document.getElementById('dueDate').value;
         const percentageDone = document.getElementById('percentageDone').value;
+        const spentHours = document.getElementById('spentHours').value; // Get hours
 
         if (!projectId || !subject) {
             Swal.fire({
@@ -256,7 +257,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                     assigneeId,
                     startDate,
                     dueDate,
-                    percentageDone
+                    percentageDone,
+                    spentHours // Send to backend
                 })
             });
 
@@ -279,9 +281,23 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                 });
 
+                let title = 'Task Created Successfully!';
+                if (result.timeLogged) {
+                    title = 'Task & Time Logged!';
+                } else if (result.timeError) {
+                    // Show warning toast for time error
+                    Swal.fire({
+                        icon: 'warning',
+                        title: 'Task Created, but...',
+                        text: result.timeError,
+                        footer: `<a href="${result.webUrl}" target="_blank">Open Task</a>`
+                    });
+                    return; // Stop here to let user see modal
+                }
+
                 Toast.fire({
                     icon: 'success',
-                    title: 'Task Created Successfully!',
+                    title: title,
                     html: `<a href="${result.webUrl}" target="_blank" style="color: #333; text-decoration: underline;">View Work Package #${result.id}</a>`
                 });
 
@@ -289,6 +305,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 document.getElementById('taskName').value = '';
                 document.getElementById('startDate').value = '';
                 document.getElementById('dueDate').value = '';
+                document.getElementById('spentHours').value = ''; // Reset hours
                 document.getElementById('percentageDone').value = '0';
                 percentBtns.forEach(b => b.classList.remove('active'));
 

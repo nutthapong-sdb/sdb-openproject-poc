@@ -331,7 +331,7 @@ app.get('/api/projects/:id/assignees', (req, res) => {
 
 // API to create Work Package
 app.post('/api/work_packages', async (req, res) => {
-    const { projectId, subject, assigneeId, startDate, dueDate, percentageDone } = req.body;
+    const { projectId, subject, assigneeId, startDate, dueDate, percentageDone, spentHours } = req.body;
     // Note: assigneeId here is the LOCAL database ID now, not the OpenProject ID directly.
 
     if (!projectId || !subject) {
@@ -385,10 +385,55 @@ app.post('/api/work_packages', async (req, res) => {
         });
 
         if (result.status >= 200 && result.status < 300) {
-            // Construct the web URL for the user to click
-            // OpenProject Web URL is usually HOST/work_packages/ID
-            const webUrl = `${HOST}/work_packages/${result.data.id}`;
-            res.json({ ...result.data, webUrl });
+            const newWorkPackageId = result.data.id;
+            const webUrl = `${HOST}/work_packages/${newWorkPackageId}`;
+
+            // --- Log Time Logic ---
+            let timeLogged = false;
+            let timeError = null;
+
+            if (spentHours && parseFloat(spentHours) > 0) {
+                console.log(`Logging ${spentHours} hours for WP #${newWorkPackageId}...`);
+                const timeUrl = `${HOST}/api/v3/time_entries`;
+
+                // Construct ISO duration (PT<N>H)
+                // If float (e.g. 1.5), ISO duration supports PT1.5H or PT1H30M.
+                // OpenProject usually supports PT1.5H.
+                const isoDuration = `PT${spentHours}H`;
+                const dateToLog = startDate || new Date().toISOString().split('T')[0];
+
+                const timePayload = {
+                    "_links": {
+                        "workPackage": { "href": `/api/v3/work_packages/${newWorkPackageId}` },
+                        "activity": { "href": "/api/v3/time_entries/activities/1" } // Corrected URI as per API error
+                    },
+                    "hours": isoDuration,
+                    "spentOn": dateToLog,
+                    "comment": { "raw": "Logged via Task Creator" }
+                };
+
+                const timeResult = await puppeteerFetch(timeUrl, {
+                    method: 'POST',
+                    body: JSON.stringify(timePayload)
+                });
+
+                if (timeResult.status >= 200 && timeResult.status < 300) {
+                    timeLogged = true;
+                    console.log('Time entry created successfully.');
+                } else {
+                    timeError = timeResult.data.message || 'Failed to create time entry'; // Try to extract error
+                    // If activity ID 1 is invalid, it might fail.
+                    console.error('Failed to log time:', timeResult.status, JSON.stringify(timeResult.data));
+                }
+            }
+            // ---------------------
+
+            res.json({
+                ...result.data,
+                webUrl,
+                timeLogged,
+                timeError: timeError ? `Note: Task created, but failed to log time (${timeError})` : null
+            });
         } else {
             res.status(result.status).json(result.data);
         }
