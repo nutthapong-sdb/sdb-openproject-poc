@@ -2,6 +2,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Check User Status
     checkUserStatus();
 
+    // DEBUG: Test Project API directly
+    fetch('/api/projects')
+        .then(r => {
+            console.log('DEBUG: /api/projects status:', r.status);
+            return r.json().then(d => console.log('DEBUG: /api/projects data:', d));
+        })
+        .catch(e => console.error('DEBUG: /api/projects error:', e));
+
     // Event Listeners for Auth
     // $(document).on('click', '#loginBtn', openLoginModal); // Removed
     $(document).on('click', '#logoutBtn', handleLogout);
@@ -21,6 +29,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 };
             },
             processResults: function (data) {
+                console.log('DEBUG: Select2 processResults received:', data);
                 // Check if error (401)
                 if (data.error) return { results: [] };
 

@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
 const cookieParser = require('cookie-parser');
@@ -14,7 +15,7 @@ app.use(bodyParser.json());
 app.use(cookieParser());
 app.use(express.static('public'));
 
-const HOST = 'https://openproject.softdebut.com';
+const HOST = process.env.HOST || 'https://openproject.softdebut.com';
 
 // Database Setup
 const DB_SOURCE = "projects.db";
@@ -28,7 +29,14 @@ const dbSqlite = new db.Database(DB_SOURCE, (err) => {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             openproject_id TEXT UNIQUE
-        )`);
+        )`, (err) => {
+            if (!err) {
+                // Pre-seed default assignee
+                const stmt = dbSqlite.prepare("INSERT OR IGNORE INTO local_assignees (name, openproject_id) VALUES (?, ?)");
+                stmt.run("Nutthapong Vivithsurakarn", "614");
+                stmt.finalize();
+            }
+        });
 
         dbSqlite.run(`CREATE TABLE IF NOT EXISTS project_cache (
             id TEXT PRIMARY KEY,
@@ -39,13 +47,53 @@ const dbSqlite = new db.Database(DB_SOURCE, (err) => {
 });
 
 // Helper to execute fetch inside Puppeteer with Cookies
-// Helper to execute fetch inside Puppeteer with Cookies
-async function puppeteerFetch(url, options = {}, sessionData = null) {
-    // Auth Check for mutations
-    if (options.method === 'POST' || options.method === 'PUT' || options.method === 'DELETE') {
-        if (!sessionData) {
-            return { status: 401, data: { error: 'Unauthorized. Please login first.' } };
+// Helper to execute fetch (via API Key or Puppeteer)
+async function puppeteerFetch(url, options = {}, sessionData = null, forceSession = false) {
+    const apiKey = process.env.OPENPROJECT_API_KEY;
+    const shouldUseApiKey = apiKey && !forceSession;
+
+    // 1. API Key Fast Path (Node Fetch)
+    if (shouldUseApiKey) {
+        try {
+            const authHeader = 'Basic ' + Buffer.from('apikey:' + apiKey).toString('base64');
+            const headers = {
+                'Content-Type': 'application/json',
+                'Authorization': authHeader,
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                ...options.headers
+            };
+
+            const fetchOptions = {
+                method: options.method || 'GET',
+                headers: headers,
+                body: options.body
+            };
+
+            const response = await fetch(url, fetchOptions);
+
+            // If success or normal error, return. If 403/503 (Cloudflare block), fall through to Puppeteer.
+            if (response.status !== 403 && response.status !== 503) {
+                let data;
+                const contentType = response.headers.get("content-type");
+                if (contentType && contentType.includes("application/json")) {
+                    data = await response.json();
+                } else {
+                    data = await response.text();
+                }
+                return { status: response.status, data: data };
+            }
+            console.warn(`API Key Fetch blocked (Status ${response.status}). Falling back to Puppeteer.`);
+
+        } catch (e) {
+            console.error('API Key Fetch Logic Error:', e);
+            // Fall through to Puppeteer on error
         }
+    }
+
+    // 2. Puppeteer Mode (Session OR API Key Fallback)
+    const isWrite = ['POST', 'PUT', 'DELETE'].includes(options.method);
+    if (isWrite && !sessionData && !apiKey) {
+        return { status: 401, data: { error: 'Unauthorized. Please login first.' } };
     }
 
     const browser = await puppeteer.launch({
@@ -57,7 +105,8 @@ async function puppeteerFetch(url, options = {}, sessionData = null) {
             '--disable-accelerated-2d-canvas',
             '--no-first-run',
             '--no-zygote',
-            '--disable-gpu'
+            '--disable-gpu',
+            '--window-size=1920,1080'
         ]
     });
 
@@ -65,55 +114,82 @@ async function puppeteerFetch(url, options = {}, sessionData = null) {
         const page = await browser.newPage();
         await page.setViewport({ width: 1920, height: 1080 });
 
+        // Apply Cookies if Session exists
         if (sessionData && sessionData.cookies && sessionData.cookies.length > 0) {
             await page.setCookie(...sessionData.cookies);
         }
 
         try {
-            // Visit base to set cookie context
-            await page.goto(`${HOST}/login`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            // Visit base to set cookie context - Wait until Network is almost idle
+            // This ensures cookies are set and Cloudflare checks might pass
+            await page.goto(`${HOST}/login`, { waitUntil: 'networkidle2', timeout: 60000 });
+
+            // Artificial delay to let background scripts/auth tokens settle
+            await new Promise(r => setTimeout(r, 3000));
+
         } catch (e) {
             console.warn('Navigation warning:', e.message);
         }
 
-        const result = await page.evaluate(async (endpoint, opts, csrf) => {
+        const authHeader = apiKey ? 'Basic ' + Buffer.from('apikey:' + apiKey).toString('base64') : null;
+        const useAuthHeader = !sessionData && !!apiKey;
+
+        let result;
+
+        // Visual Navigation for GET requests
+        if ((!options.method || options.method === 'GET') && browser.isConnected()) {
             try {
-                const headers = {
-                    'Content-Type': 'application/json',
-                    ...opts.headers
-                };
-
-                if (csrf && (opts.method === 'POST' || opts.method === 'PUT' || opts.method === 'DELETE')) {
-                    headers['X-CSRF-Token'] = csrf;
-                }
-
-                const fetchOptions = {
-                    method: opts.method || 'GET',
-                    headers: headers
-                };
-
-                if (opts.body) {
-                    fetchOptions.body = opts.body;
-                }
-
-                const response = await fetch(endpoint, fetchOptions);
+                const response = await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
+                const status = response ? response.status() : 500;
+                const text = await page.evaluate(() => document.body.innerText);
 
                 let data;
-                const contentType = response.headers.get("content-type");
-                if (contentType && contentType.indexOf("application/json") !== -1) {
-                    data = await response.json();
-                } else {
-                    data = await response.text();
-                }
+                try { data = JSON.parse(text); } catch (e) { data = text; }
+                result = { status, data };
 
-                return {
-                    status: response.status,
-                    data: data
-                };
             } catch (err) {
-                return { status: 500, data: { error: err.toString() } };
+                console.error("Puppeteer GET Navigation Error:", err);
+                result = { status: 500, data: { error: err.message } };
             }
-        }, url, options, sessionData ? sessionData.csrfToken : null);
+        } else {
+            result = await page.evaluate(async (endpoint, opts, csrf, auth, useAuth) => {
+                try {
+                    const headers = {
+                        'Content-Type': 'application/json',
+                        ...opts.headers
+                    };
+
+                    if (csrf && ['POST', 'PUT', 'DELETE'].includes(opts.method)) {
+                        headers['X-CSRF-Token'] = csrf;
+                    }
+
+                    // Inject Auth Header if needed (Fallback mode)
+                    if (useAuth && auth) {
+                        headers['Authorization'] = auth;
+                    }
+
+                    const fetchOptions = {
+                        method: opts.method || 'GET',
+                        headers: headers,
+                        body: opts.body
+                    };
+
+                    const response = await fetch(endpoint, fetchOptions);
+
+                    let data;
+                    const contentType = response.headers.get("content-type");
+                    if (contentType && contentType.indexOf("application/json") !== -1) {
+                        data = await response.json();
+                    } else {
+                        data = await response.text();
+                    }
+                    return { status: response.status, data: data };
+
+                } catch (err) {
+                    return { status: 500, data: { error: err.toString() } };
+                }
+            }, url, options, sessionData ? sessionData.csrfToken : null, authHeader, useAuthHeader);
+        }
 
         return result;
 
@@ -361,35 +437,107 @@ function getSession(req) {
 
 // GET All Projects
 app.get('/api/projects', async (req, res) => {
-    console.log('Fetching projects...');
-    dbSqlite.all("SELECT * FROM project_cache ORDER BY name ASC", [], async (err, rows) => {
-        if (!err && rows.length > 0) {
-            console.log(`Serving ${rows.length} projects from cache.`);
-            return res.json(rows);
+    // console.log('Fetching projects...');
+
+    // 1. Prepare Query for Cache
+    let sql = "SELECT * FROM project_cache ORDER BY name ASC";
+    let params = [];
+    if (req.query.q) {
+        sql = "SELECT * FROM project_cache WHERE name LIKE ? ORDER BY name ASC";
+        params = [`%${req.query.q}%`];
+    }
+
+    dbSqlite.all(sql, params, async (err, rows) => {
+        if (!err) {
+            // If we found rows, return them
+            if (rows.length > 0) return res.json(rows);
+
+            // If we are searching (q exists), check if the cache is actually empty globally
+            // If cache has data but search found nothing, return empty list (don't re-sync)
+            if (req.query.q) {
+                const count = await new Promise(resolve => {
+                    dbSqlite.get("SELECT COUNT(*) as c FROM project_cache", [], (e, r) => resolve(r ? r.c : 0));
+                });
+                if (count > 0) return res.json([]);
+            }
         }
 
         const session = getSession(req);
+        const hasKey = !!process.env.OPENPROJECT_API_KEY;
 
-        if (!session) {
-            return res.status(401).json({ error: 'Please login to fetch projects' });
+        if (!session && !hasKey) {
+            console.log('Project Fetch: No session found (Cookie missing or invalid).');
+            return res.status(401).json({ error: 'Please login or configure API Key to fetch projects' });
         }
 
-        const url = `${HOST}/api/v3/projects`;
-        const result = await puppeteerFetch(url, { method: 'GET' }, session);
+        let allProjects = [];
+        let offset = 1;
+        let pageSize = 100;
+        let total = 0;
+        let keepFetching = true;
 
-        if (result.status === 200 && result.data._embedded) {
-            const projects = result.data._embedded.elements.map(p => ({
-                id: p.id.toString(),
-                name: p.name
-            }));
+        try {
+            console.log('Starting full project sync from OpenProject...');
+            while (keepFetching) {
+                const url = `${HOST}/api/v3/projects?pageSize=${pageSize}&offset=${offset}`;
+                console.log(`Syncing page at offset ${offset}...`);
 
-            const stmt = dbSqlite.prepare("INSERT OR REPLACE INTO project_cache (id, name) VALUES (?, ?)");
-            projects.forEach(p => stmt.run(p.id, p.name));
-            stmt.finalize();
+                const result = await puppeteerFetch(url, { method: 'GET' }, session);
 
-            res.json(projects);
-        } else {
-            res.status(result.status).json(result.data);
+                if (result.status !== 200) {
+                    console.error('Fetch error:', result.status);
+                    break;
+                }
+
+                let data = result.data;
+                if (typeof data === 'string') try { data = JSON.parse(data); } catch (e) { }
+
+                if (data && data._embedded && data._embedded.elements) {
+                    const pageProjects = data._embedded.elements.map(p => ({
+                        id: String(p.id),
+                        name: p.name
+                    }));
+                    allProjects = allProjects.concat(pageProjects);
+
+                    total = data.total || 0;
+                    const count = data.count || pageProjects.length;
+
+                    // Stop if we have fetched everything
+                    if (allProjects.length >= total || count < pageSize) {
+                        keepFetching = false;
+                    } else {
+                        offset++;
+                    }
+                } else {
+                    keepFetching = false;
+                }
+            }
+
+            console.log(`Sync Complete. Total fetched: ${allProjects.length}`);
+
+            if (allProjects.length > 0) {
+                dbSqlite.serialize(() => {
+                    dbSqlite.run("BEGIN TRANSACTION");
+                    dbSqlite.run("DELETE FROM project_cache");
+                    const stmt = dbSqlite.prepare("INSERT INTO project_cache (id, name) VALUES (?, ?)");
+                    allProjects.forEach(p => stmt.run(p.id, p.name));
+                    stmt.finalize();
+                    dbSqlite.run("COMMIT");
+                });
+            }
+
+            // Re-filter if query present after sync
+            if (req.query.q) {
+                const qLower = req.query.q.toLowerCase();
+                const filtered = allProjects.filter(p => p.name.toLowerCase().includes(qLower));
+                res.json(filtered);
+            } else {
+                res.json(allProjects);
+            }
+
+        } catch (e) {
+            console.error('Project Sync Exception:', e);
+            res.status(500).json({ error: e.message });
         }
     });
 });
@@ -402,63 +550,80 @@ app.get('/api/assignees', (req, res) => {
     });
 });
 
-async function findUserInProject(name, projectId, sessionData) {
-    if (!sessionData) return null;
+async function findUserInProject(name, providedProjectId, sessionData) {
+    if (!sessionData && !process.env.OPENPROJECT_API_KEY) return null;
 
-    try {
-        console.log(`Searching for '${name}' in Project ${projectId}...`);
-        const url = `${HOST}/api/v3/projects/${projectId}/available_assignees`;
-        const result = await puppeteerFetch(url, { method: 'GET' }, sessionData);
-
-        if (result.status >= 200 && result.status < 300 && result.data._embedded && result.data._embedded.elements) {
-            const user = result.data._embedded.elements.find(el => el._type === 'User' && el.name.toLowerCase().includes(name.toLowerCase()));
-            if (user) {
-                return user.id.toString();
-            }
-        }
-    } catch (e) {
-        console.error(`Search failed for project ${projectId}:`, e.message);
+    // List of projects to search (Priority: Provided -> eng-sdb -> Common IDs)
+    let projectsToSearch = ['eng-sdb', '614', '615'];
+    if (providedProjectId) {
+        projectsToSearch.unshift(providedProjectId);
     }
+    projectsToSearch = [...new Set(projectsToSearch)]; // Unique
+
+    console.log(`Searching for '${name}' in projects: ${projectsToSearch.join(', ')}...`);
+
+    for (const pid of projectsToSearch) {
+        try {
+            // Check available assignees in this project
+            const url = `${HOST}/api/v3/projects/${pid}/available_assignees`;
+            // console.log(`Checking ${url}...`);
+
+            const result = await puppeteerFetch(url, { method: 'GET' }, sessionData);
+
+            if (result.status === 200 && result.data && result.data._embedded && result.data._embedded.elements) {
+                const elements = result.data._embedded.elements;
+
+                // 1. Exact Match
+                let found = elements.find(el => el._type === 'User' && el.name.toLowerCase() === name.toLowerCase());
+
+                // 2. Fuzzy Match (if no exact)
+                if (!found) {
+                    found = elements.find(el => el._type === 'User' && el.name.toLowerCase().includes(name.toLowerCase()));
+                }
+
+                if (found) {
+                    console.log(`Found User '${found.name}' (ID: ${found.id}) in Project '${pid}'`);
+                    return found.id.toString();
+                }
+            } else if (result.status === 404) {
+                // Project ID might be wrong or inaccessible
+                // console.warn(`Project '${pid}' unavailable.`);
+            }
+
+        } catch (e) {
+            console.error(`Error searching project ${pid}:`, e.message);
+        }
+    }
+
     return null;
 }
 
 app.post('/api/assignees', async (req, res) => {
     const { name, projectId } = req.body;
     const session = getSession(req);
+    const hasKey = !!process.env.OPENPROJECT_API_KEY;
 
     if (!name) return res.status(400).json({ error: 'Name is required' });
 
     let finalOpId = null;
 
-    if (session) {
-        const searchQueue = [];
-        if (projectId) searchQueue.push(projectId);
-        searchQueue.push('614');
-        searchQueue.push('615');
-
-        const uniqueQueue = [...new Set(searchQueue)];
-
-        for (const pid of uniqueQueue) {
-            finalOpId = await findUserInProject(name, pid, session);
-            if (finalOpId) {
-                console.log(`Found User '${name}' (ID: ${finalOpId}) in Project ${pid}`);
-                break;
-            }
-        }
+    if (session || hasKey) {
+        // Use Global Search now, ignore project ID queue
+        finalOpId = await findUserInProject(name, null, session);
     } else {
-        console.warn('Skipping auto-search: Not logged in.');
+        console.warn('Skipping auto-search: Not logged in and no API Key.');
     }
 
-    if (!finalOpId && session) {
-        return res.status(404).json({ error: `Could not find OpenProject user matching '${name}'. Please check the spelling.` });
+    if (!finalOpId && (session || hasKey)) {
+        return res.status(404).json({ error: `Could not find OpenProject user matching '${name}'.` });
     } else if (!finalOpId) {
-        return res.status(401).json({ error: `Please login to verify assignee.` });
+        return res.status(401).json({ error: `Please login or provide API Key to verify assignee.` });
     }
 
     dbSqlite.get("SELECT * FROM local_assignees WHERE openproject_id = ?", [finalOpId], (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
         if (row) {
-            return res.status(409).json({ error: `Duplicate: '${row.name}' already uses ID ${finalOpId}.` });
+            return res.status(409).json({ error: `User '${row.name}' is already in the list (ID: ${finalOpId}).` });
         }
 
         dbSqlite.run("INSERT INTO local_assignees (name, openproject_id) VALUES (?, ?)", [name, finalOpId], function (err) {
@@ -472,29 +637,18 @@ app.put('/api/assignees/:id', async (req, res) => {
     const { name, projectId } = req.body;
     const { id } = req.params;
     const session = getSession(req);
+    const hasKey = !!process.env.OPENPROJECT_API_KEY;
 
     if (!name) return res.status(400).json({ error: 'Name is required' });
-    if (!session) return res.status(401).json({ error: 'Please login first.' });
+    if (!session && !hasKey) return res.status(401).json({ error: 'Please login first.' });
 
     let finalOpId = null;
 
-    const searchQueue = [];
-    if (projectId) searchQueue.push(projectId);
-    searchQueue.push('614');
-    searchQueue.push('615');
-
-    const uniqueQueue = [...new Set(searchQueue)];
-
-    for (const pid of uniqueQueue) {
-        finalOpId = await findUserInProject(name, pid, session);
-        if (finalOpId) {
-            console.log(`Found User '${name}' (ID: ${finalOpId}) in Project ${pid}`);
-            break;
-        }
-    }
+    // Global Search
+    finalOpId = await findUserInProject(name, null, session);
 
     if (!finalOpId) {
-        return res.status(404).json({ error: `Could not find OpenProject user matching '${name}'. Please check the spelling.` });
+        return res.status(404).json({ error: `Could not find OpenProject user matching '${name}'.` });
     }
 
     dbSqlite.get("SELECT * FROM local_assignees WHERE openproject_id = ? AND id != ?", [finalOpId, id], (err, row) => {
@@ -570,7 +724,7 @@ app.post('/api/work_packages', async (req, res) => {
         const result = await puppeteerFetch(url, {
             method: 'POST',
             body: JSON.stringify(payload)
-        }, session);
+        }, session, true);
 
         if (result.status >= 200 && result.status < 300) {
             const newWorkPackageId = result.data.id;
@@ -599,7 +753,7 @@ app.post('/api/work_packages', async (req, res) => {
                 const timeResult = await puppeteerFetch(timeUrl, {
                     method: 'POST',
                     body: JSON.stringify(timePayload)
-                }, session);
+                }, session, true);
 
                 if (timeResult.status >= 200 && timeResult.status < 300) {
                     timeLogged = true;

@@ -51,7 +51,7 @@
                 loader.show();
 
                 // Show custom loading text
-                const loadingText = $('<div id="loadingText" style="margin-top: 5px; font-size: 0.8rem;">กำลังตรวจสอบข้อมูลกับเว็บ OpenProject ใช้เวลาไม่เกิน 30 วินาที</div>');
+                const loadingText = $('<div id="loadingText" style="margin-top: 5px; font-size: 0.8rem;">&nbsp; Verifying credentials with OpenProject, please wait up to 30 seconds...</div>');
                 if ($('#loadingText').length === 0) {
                     btn.append(loadingText);
                 } else {
