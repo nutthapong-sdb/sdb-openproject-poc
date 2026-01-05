@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - OpenProject Task Creator</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+</head>
+
+<body style="flex-direction: column;">
+    <div class="container" style="max-width: 400px; text-align: center;">
+        <header>
+            <h1>Sign in</h1>
+            <p>OpenProject Helper for Softdebut</p>
+        </header>
+
+        <form id="loginForm" style="margin-top: 30px;">
+            <div class="form-group">
+                <input type="text" id="username" class="form-control" placeholder="Username or Email" required
+                    style="text-align: center; font-size: 1.1rem; padding: 15px;">
+            </div>
+            <div class="form-group">
+                <input type="password" id="password" class="form-control" placeholder="Password" required
+                    style="text-align: center; font-size: 1.1rem; padding: 15px;">
+            </div>
+
+            <button type="submit" id="loginBtn" style="margin-top: 20px;">
+                <span id="btnText">Login</span>
+                <div id="btnLoader" class="loader"></div>
+            </button>
+        </form>
+    </div>
+
+    <script>
+        $(document).ready(function () {
+            $('#loginForm').on('submit', async function (e) {
+                e.preventDefault();
+
+                const username = $('#username').val();
+                const password = $('#password').val();
+                const btn = $('#loginBtn');
+                const loader = $('#btnLoader');
+                const text = $('#btnText');
+
+                btn.prop('disabled', true);
+                text.hide();
+                loader.show();
+
+                // Show custom loading text
+                const loadingText = $('<div id="loadingText" style="margin-top: 5px; font-size: 0.8rem;">กำลังตรวจสอบข้อมูลกับเว็บ OpenProject ใช้เวลาไม่เกิน 30 วินาที</div>');
+                if ($('#loadingText').length === 0) {
+                    btn.append(loadingText);
+                } else {
+                    $('#loadingText').show();
+                }
+
+                try {
+                    const res = await fetch('/api/login', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ username, password })
+                    });
+
+                    const data = await res.json();
+
+                    if (res.ok) {
+                        // Success toast
+                        const Toast = Swal.mixin({
+                            toast: true,
+                            position: 'top-end',
+                            showConfirmButton: false,
+                            timer: 1500,
+                            didOpen: (toast) => {
+                                toast.addEventListener('mouseenter', Swal.stopTimer)
+                                toast.addEventListener('mouseleave', Swal.resumeTimer)
+                            }
+                        });
+
+                        Toast.fire({
+                            icon: 'success',
+                            title: 'Login successful'
+                        });
+
+                        // Redirect to main app
+                        setTimeout(() => {
+                            window.location.href = '/';
+                        }, 1500);
+
+                    } else {
+                        Swal.fire({
+                            icon: 'error',
+                            title: 'Login Failed',
+                            text: data.error,
+                            confirmButtonColor: '#CF6679'
+                        });
+                        btn.prop('disabled', false);
+                        text.show();
+                        loader.hide();
+                        $('#loadingText').hide();
+                    }
+                } catch (e) {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Error',
+                        text: e.message
+                    });
+                    btn.prop('disabled', false);
+                    text.show();
+                    loader.hide();
+                    $('#loadingText').hide();
+                }
+            });
+        });
+    </script>
+</body>
+
+</html>

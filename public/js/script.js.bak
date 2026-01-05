@@ -3,7 +3,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     checkUserStatus();
 
     // Event Listeners for Auth
-    // $(document).on('click', '#loginBtn', openLoginModal); // Removed
+    $(document).on('click', '#loginBtn', openLoginModal);
     $(document).on('click', '#logoutBtn', handleLogout);
 
     // Initialize Select2 with AJAX (Projects)
@@ -371,40 +371,3 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 });
-
-
-
-
-// --- Authentication Helpers ---
-
-async function checkUserStatus() {
-    try {
-        const response = await fetch('/api/user');
-        if (response.ok) {
-            const user = await response.json();
-            renderUserLoggedIn(user);
-            // Enable app
-            $('main').css('opacity', '1').css('pointer-events', 'auto');
-        } else {
-            // Not logged in -> Redirect to Login Page
-            window.location.href = '/login.html';
-        }
-    } catch (e) {
-        window.location.href = '/login.html';
-    }
-}
-
-function renderUserLoggedIn(user) {
-    const html = `
-        <span style="font-size: 0.9rem; color: #aaa;">Hi, ${user.name}</span>
-        <button id="logoutBtn" style="width: auto; padding: 6px 12px; font-size: 0.8rem; background-color: #333; border: 1px solid #555; color: #fff; cursor: pointer;">Logout</button>
-    `;
-    $('#userControls').html(html);
-}
-
-// openLoginModal removed - using login.html
-
-async function handleLogout() {
-    await fetch('/api/logout', { method: 'POST' });
-    window.location.href = '/login.html';
-}

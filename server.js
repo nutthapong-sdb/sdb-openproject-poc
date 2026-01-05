@@ -1,8 +1,9 @@
-require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
+const cookieParser = require('cookie-parser');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+const db = require('sqlite3').verbose();
 
 puppeteer.use(StealthPlugin());
 
@@ -10,20 +11,43 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(bodyParser.json());
+app.use(cookieParser());
 app.use(express.static('public'));
 
-const HOST = process.env.OPENPROJECT_HOST;
-const API_KEY = process.env.OPENPROJECT_API_KEY;
+const HOST = 'https://openproject.softdebut.com';
 
-if (!HOST || !API_KEY) {
-    console.error('Error: Please set OPENPROJECT_HOST and OPENPROJECT_API_KEY in .env file');
-    process.exit(1);
-}
+// Database Setup
+const DB_SOURCE = "projects.db";
+const dbSqlite = new db.Database(DB_SOURCE, (err) => {
+    if (err) {
+        console.error(err.message);
+        throw err;
+    } else {
+        console.log('Database connected.');
+        dbSqlite.run(`CREATE TABLE IF NOT EXISTS local_assignees (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            openproject_id TEXT UNIQUE
+        )`);
 
-const authHash = Buffer.from(`apikey:${API_KEY}`).toString('base64');
+        dbSqlite.run(`CREATE TABLE IF NOT EXISTS project_cache (
+            id TEXT PRIMARY KEY,
+            name TEXT,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`);
+    }
+});
 
-// Helper to execute fetch inside Puppeteer
-async function puppeteerFetch(url, options = {}) {
+// Helper to execute fetch inside Puppeteer with Cookies
+// Helper to execute fetch inside Puppeteer with Cookies
+async function puppeteerFetch(url, options = {}, sessionData = null) {
+    // Auth Check for mutations
+    if (options.method === 'POST' || options.method === 'PUT' || options.method === 'DELETE') {
+        if (!sessionData) {
+            return { status: 401, data: { error: 'Unauthorized. Please login first.' } };
+        }
+    }
+
     const browser = await puppeteer.launch({
         headless: 'new',
         args: [
@@ -39,181 +63,352 @@ async function puppeteerFetch(url, options = {}) {
 
     try {
         const page = await browser.newPage();
-
-        // Optimize viewport
         await page.setViewport({ width: 1920, height: 1080 });
 
-        // We visit the actual page to set cookies
-        try {
-            // Using networkidle0 to ensure most things are loaded
-            await page.goto(`${HOST}`, { waitUntil: 'load', timeout: 60000 });
-        } catch (e) {
-            console.log('Main page load warning:', e.message);
+        if (sessionData && sessionData.cookies && sessionData.cookies.length > 0) {
+            await page.setCookie(...sessionData.cookies);
         }
 
-        const result = await page.evaluate(async (endpoint, fetchOptions, auth) => {
+        try {
+            // Visit base to set cookie context
+            await page.goto(`${HOST}/login`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        } catch (e) {
+            console.warn('Navigation warning:', e.message);
+        }
+
+        const result = await page.evaluate(async (endpoint, opts, csrf) => {
             try {
                 const headers = {
-                    'Authorization': `Basic ${auth}`,
                     'Content-Type': 'application/json',
-                    ...fetchOptions.headers
+                    ...opts.headers
                 };
 
-                const response = await fetch(endpoint, {
-                    ...fetchOptions,
-                    headers: headers
-                });
-
-                const text = await response.text();
-                try {
-                    return {
-                        status: response.status,
-                        data: JSON.parse(text)
-                    };
-                } catch {
-                    return {
-                        status: response.status,
-                        data: text,
-                        error: 'Failed to parse JSON response form API'
-                    };
+                if (csrf && (opts.method === 'POST' || opts.method === 'PUT' || opts.method === 'DELETE')) {
+                    headers['X-CSRF-Token'] = csrf;
                 }
+
+                const fetchOptions = {
+                    method: opts.method || 'GET',
+                    headers: headers
+                };
+
+                if (opts.body) {
+                    fetchOptions.body = opts.body;
+                }
+
+                const response = await fetch(endpoint, fetchOptions);
+
+                let data;
+                const contentType = response.headers.get("content-type");
+                if (contentType && contentType.indexOf("application/json") !== -1) {
+                    data = await response.json();
+                } else {
+                    data = await response.text();
+                }
+
+                return {
+                    status: response.status,
+                    data: data
+                };
             } catch (err) {
-                return { status: 500, error: err.toString() };
+                return { status: 500, data: { error: err.toString() } };
             }
-        }, url, options, authHash);
+        }, url, options, sessionData ? sessionData.csrfToken : null);
 
         return result;
 
     } catch (error) {
         console.error('Puppeteer Error:', error);
-        throw error;
+        return { status: 500, data: { error: error.message } };
     } finally {
         await browser.close();
     }
 }
 
-const sqlite3 = require('sqlite3').verbose();
-const fs = require('fs');
+// --- Auth Endpoints ---
+app.post('/api/login', async (req, res) => {
+    const { username, password } = req.body;
 
-// Initialize SQLite Database
-const dbFile = './projects.db';
-const db = new sqlite3.Database(dbFile);
+    if (!username || !password) {
+        return res.status(400).json({ error: 'Username and password required' });
+    }
 
-// Create table if not exists
-db.serialize(() => {
-    db.run("CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY, project_id TEXT UNIQUE, name TEXT, updated_at DATETIME)");
-    db.run("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)");
-    db.run("CREATE TABLE IF NOT EXISTS local_assignees (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, openproject_id TEXT)");
-});
+    console.log(`Attempting login for user: ${username}...`);
 
-// Helper to save projects to DB (Upsert Logic)
-function saveProjectsToDB(projects) {
-    db.serialize(() => {
-        db.run("BEGIN TRANSACTION");
+    const browser = await puppeteer.launch({
+        headless: 'new', // Back to invisible mode
+        defaultViewport: null,
+        args: ['--start-maximized', '--no-sandbox', '--disable-setuid-sandbox']
+    });
 
-        const stmt = db.prepare(`
-            INSERT INTO projects (project_id, name, updated_at) 
-            VALUES (?, ?, ?)
-            ON CONFLICT(project_id) DO UPDATE SET
-            name = excluded.name,
-            updated_at = excluded.updated_at
-        `);
+    try {
+        const page = await browser.newPage();
 
-        const now = new Date().toISOString();
-        let newCount = 0;
-
-        projects.forEach(p => {
-            stmt.run(p.id, p.name, now);
+        // Anti-detection measures
+        await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+        await page.setExtraHTTPHeaders({
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
         });
 
-        stmt.finalize();
+        // Hide webdriver property explicitly
+        await page.evaluateOnNewDocument(() => {
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => false,
+            });
+        });
 
-        // Update last sync time
-        db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('last_sync', ?)", now);
-        db.run("COMMIT");
-    });
-    console.log(`Synced ${projects.length} projects with database at ${new Date().toISOString()}`);
-}
+        await page.goto(`${HOST}/login`, { waitUntil: 'networkidle0' });
 
-// Function to fetch from Puppeteer and Update DB
-async function updateProjectsCache() {
-    console.log('Starting scheduled project update...');
-    try {
-        const url = `${HOST}/api/v3/projects`;
-        const result = await puppeteerFetch(url, { method: 'GET' });
+        // Wait for login form
+        try {
+            await page.waitForSelector('input[name="username"], input[name="login"]', { timeout: 10000 });
+            console.log('Login form found, pausing for 5 seconds for visual inspection...');
+            await new Promise(r => setTimeout(r, 5000)); // Pause for user
+        } catch (e) {
+            // Debug: Log content if frame
+            // const content = await page.content();
+            // console.log(content);
+            throw new Error('Login form not found (username input missing)');
+        }
 
-        if (result.status >= 200 && result.status < 300) {
-            let projects = [];
-            if (Array.isArray(result.data)) {
-                projects = result.data;
-            } else if (result.data._embedded && result.data._embedded.elements) {
-                projects = result.data._embedded.elements;
-            }
+        // Detect Username Selector
+        const usernameSelector = await page.evaluate(() => {
+            return document.querySelector('input[name="username"]') ? 'input[name="username"]' : 'input[name="login"]';
+        });
 
-            if (projects.length > 0) {
-                saveProjectsToDB(projects);
-            }
+        console.log(`Using username selector: ${usernameSelector}`);
+
+        // DIRECTLY SET VALUES VIA DOM (Reliable)
+        await page.evaluate((uSelector, uValue, pValue) => {
+            // Helper to set value and trigger events
+            const setVal = (sel, val) => {
+                const el = document.querySelector(sel);
+                if (el) {
+                    el.value = val;
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                    el.dispatchEvent(new Event('blur', { bubbles: true }));
+                }
+            };
+
+            setVal(uSelector, uValue);
+            setVal('input[name="password"]', pValue);
+        }, usernameSelector, username.trim(), password.trim());
+
+        // Wait a moment for events to propagate
+        await new Promise(r => setTimeout(r, 500));
+
+        // DEBUG: Check what is in the DOM
+        const formValues = await page.evaluate(() => {
+            return {
+                user: document.querySelector('input[name="username"], input[name="login"]')?.value,
+                passLength: document.querySelector('input[name="password"]')?.value?.length
+            };
+        });
+        console.log(`DEBUG Check: User='${formValues.user}', PassLength=${formValues.passLength}`);
+
+        // Submit Login Form
+        const submitSelector = 'button[type="submit"], input[type="submit"]';
+        const submitBtn = await page.$(submitSelector);
+
+        if (submitBtn) {
+            console.log('Clicking submit button via JS...');
+            await Promise.all([
+                page.waitForNavigation({ waitUntil: 'domcontentloaded' }).catch(e => console.log('Navigation timeout/skip', e.message)),
+                page.evaluate((btn) => btn.click(), submitBtn)
+            ]);
         } else {
-            console.error('Failed to fetch projects for cache update:', result.status);
+            console.log('No submit button found, pressing Enter...');
+            await Promise.all([
+                page.waitForNavigation({ waitUntil: 'domcontentloaded' }).catch(e => console.log('Navigation timeout/skip', e.message)),
+                page.keyboard.press('Enter')
+            ]);
         }
-    } catch (error) {
-        console.error('Error during cache update:', error.message);
+
+        // Wait for page to settle after login submit
+        try {
+            console.log('Waiting for login success indicators...');
+            await page.waitForFunction(() => {
+                // Check for Meta Tag OR Avatar OR simply successfully navigating away from /login
+                return document.querySelector('meta[name="current-user"]') ||
+                    document.querySelector('.avatar') ||
+                    document.querySelector('#user-menu') ||
+                    (!window.location.href.includes('/login') && document.readyState === 'complete');
+            }, { timeout: 10000 });
+        } catch (e) {
+            console.log('Wait for login verification timed out (but might still be logged in)');
+        }
+
+        // Verify Login
+        // Verify Login
+        const isLoggedIn = await page.evaluate(() => {
+            // Check 1: Meta Tag (Hidden ID embedded by OpenProject when logged in)
+            const metaUser = document.querySelector('meta[name="current-user"]');
+
+            // Check 2: UI Elements (Avatar OR User Menu) - Works even if user has default avatar
+            const avatar = document.querySelector('.avatar') || document.querySelector('img[class*="avatar"]');
+            const userMenu = document.querySelector('#user-menu');
+
+            // Check 3: Address Bar (If we are NOT on /login anymore, we likely succeeded)
+            const notLoginUrl = !window.location.href.includes('/login');
+
+            // RESULT: Use OR (||) operator. 
+            // If ANY ONE of these is true, we consider the login successful.
+            return !!(metaUser || avatar || userMenu || notLoginUrl);
+        });
+
+        if (!isLoggedIn) {
+            // CAPTURE DEBUG ARTIFACTS
+            const timestamp = Date.now();
+            const debugFilename = `debug_login_fail_${timestamp}.png`;
+            await page.screenshot({ path: `public/${debugFilename}`, fullPage: true });
+
+            const errorDetails = await page.evaluate(() => {
+                const alert = document.querySelector('.flash.error') ||
+                    document.querySelector('.notification-box.-error') ||
+                    document.querySelector('.alert-error') ||
+                    document.querySelector('[class*="error"]');
+
+                if (alert) return `Alert found: ${alert.innerText.trim()}`;
+
+                // If no specific alert, return page title and body snippet
+                return `No alert found. Title: ${document.title}. Body: ${document.body.innerText.substring(0, 300).replace(/\s+/g, ' ')}`;
+            });
+
+            console.log(`Login Failed. Screenshot saved: public/${debugFilename}`);
+            // await browser.close(); // Keep open on failure too
+
+            return res.status(401).json({
+                error: `Login Verification Failed. Details: ${errorDetails}`,
+                debugSnapshot: `/${debugFilename}`
+            });
+        }
+
+        const cookies = await page.cookies();
+
+        const csrfToken = await page.evaluate(() => {
+            const meta = document.querySelector('meta[name="csrf-token"]');
+            return meta ? meta.content : null;
+        });
+
+        const sessionData = {
+            isValid: true,
+            cookies: cookies,
+            csrfToken: csrfToken,
+            lastUpdated: new Date()
+        };
+
+        // Fetch user details manually using the new session
+        const userUrl = `${HOST}/api/v3/users/me`;
+        const userData = await page.evaluate(async (url) => {
+            const r = await fetch(url);
+            return r.json();
+        }, userUrl);
+
+        if (userData && userData.id) {
+            sessionData.user = {
+                id: userData.id,
+                name: userData.name,
+                avatar: userData.avatarUrl
+            };
+        } else {
+            sessionData.user = { name: username, id: 'unknown' };
+        }
+
+        // Set Cookie (Max 1 day)
+        res.cookie('sdb_session', JSON.stringify(sessionData), {
+            httpOnly: true,
+            secure: false,
+            maxAge: 24 * 60 * 60 * 1000
+        });
+
+        console.log(`Login Successful for ${sessionData.user.name}`);
+        res.json({ message: 'Login successful', user: sessionData.user });
+
+    } catch (e) {
+        console.error('Login Error:', e);
+        res.status(500).json({ error: `Login failed: ${e.message}` });
+    } finally {
+        if (browser) await browser.close();
     }
+});
+
+app.post('/api/logout', (req, res) => {
+    res.clearCookie('sdb_session');
+    res.json({ message: 'Logged out' });
+});
+
+app.get('/api/user', (req, res) => {
+    const sessionCookie = req.cookies.sdb_session;
+    try {
+        const session = JSON.parse(sessionCookie);
+        if (session && session.isValid) {
+            return res.json(session.user);
+        }
+    } catch (e) { }
+    res.status(401).json({ error: 'Not logged in' });
+});
+
+// Helper to get session from request
+function getSession(req) {
+    try {
+        const s = JSON.parse(req.cookies.sdb_session);
+        if (s && s.isValid) return s;
+    } catch (e) { }
+    return null;
 }
 
-// Schedule Update: Every 6 hours (6 * 60 * 60 * 1000 ms)
-const UPDATE_INTERVAL = 6 * 60 * 60 * 1000;
-setInterval(updateProjectsCache, UPDATE_INTERVAL);
-
-// Initial check
-db.get("SELECT value FROM meta WHERE key = 'last_sync'", (err, row) => {
-    if (err || !row) {
-        console.log('No local cache found. Fetching initial data...');
-        updateProjectsCache();
-    } else {
-        console.log(`Database loaded. Last sync: ${new Date(row.value).toLocaleString()}`);
-        updateProjectsCache();
-    }
-});
-
-// GET Projects: Read from DB
-app.get('/api/projects', (req, res) => {
-    const search = req.query.q || '';
-    let query = "SELECT project_id as id, name FROM projects";
-    let params = [];
-
-    if (search) {
-        query += " WHERE name LIKE ?";
-        params.push(`%${search}%`);
-    }
-
-    query += " ORDER BY name ASC";
-
-    db.all(query, params, (err, rows) => {
-        if (err) {
-            res.status(500).json({ error: err.message });
-            return;
+// GET All Projects
+app.get('/api/projects', async (req, res) => {
+    console.log('Fetching projects...');
+    dbSqlite.all("SELECT * FROM project_cache ORDER BY name ASC", [], async (err, rows) => {
+        if (!err && rows.length > 0) {
+            console.log(`Serving ${rows.length} projects from cache.`);
+            return res.json(rows);
         }
-        res.json(rows);
+
+        const session = getSession(req);
+
+        if (!session) {
+            return res.status(401).json({ error: 'Please login to fetch projects' });
+        }
+
+        const url = `${HOST}/api/v3/projects`;
+        const result = await puppeteerFetch(url, { method: 'GET' }, session);
+
+        if (result.status === 200 && result.data._embedded) {
+            const projects = result.data._embedded.elements.map(p => ({
+                id: p.id.toString(),
+                name: p.name
+            }));
+
+            const stmt = dbSqlite.prepare("INSERT OR REPLACE INTO project_cache (id, name) VALUES (?, ?)");
+            projects.forEach(p => stmt.run(p.id, p.name));
+            stmt.finalize();
+
+            res.json(projects);
+        } else {
+            res.status(result.status).json(result.data);
+        }
     });
 });
-
-// --- Local Assignees API ---
 
 // GET All Local Assignees
 app.get('/api/assignees', (req, res) => {
-    db.all("SELECT * FROM local_assignees ORDER BY name ASC", [], (err, rows) => {
+    dbSqlite.all("SELECT * FROM local_assignees ORDER BY name ASC", [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(rows);
     });
 });
 
-// Helper to search user in a specific project
-async function findUserInProject(name, projectId) {
+async function findUserInProject(name, projectId, sessionData) {
+    if (!sessionData) return null;
+
     try {
         console.log(`Searching for '${name}' in Project ${projectId}...`);
         const url = `${HOST}/api/v3/projects/${projectId}/available_assignees`;
-        const result = await puppeteerFetch(url, { method: 'GET' });
+        const result = await puppeteerFetch(url, { method: 'GET' }, sessionData);
 
         if (result.status >= 200 && result.status < 300 && result.data._embedded && result.data._embedded.elements) {
             const user = result.data._embedded.elements.find(el => el._type === 'User' && el.name.toLowerCase().includes(name.toLowerCase()));
@@ -227,58 +422,59 @@ async function findUserInProject(name, projectId) {
     return null;
 }
 
-// ADD Local Assignee
 app.post('/api/assignees', async (req, res) => {
     const { name, projectId } = req.body;
+    const session = getSession(req);
 
     if (!name) return res.status(400).json({ error: 'Name is required' });
 
     let finalOpId = null;
 
-    // Search Strategy:
-    // 1. If project context provided, search there first.
-    // 2. If not found or no context, search in default projects (Production: 614, MA: 615)
-    // 3. This covers the "Global" search requirement without global permissions.
+    if (session) {
+        const searchQueue = [];
+        if (projectId) searchQueue.push(projectId);
+        searchQueue.push('614');
+        searchQueue.push('615');
 
-    const searchQueue = [];
-    if (projectId) searchQueue.push(projectId);
-    searchQueue.push('614'); // Default Production
-    searchQueue.push('615'); // Default MA
+        const uniqueQueue = [...new Set(searchQueue)];
 
-    // Remove duplicates
-    const uniqueQueue = [...new Set(searchQueue)];
-
-    for (const pid of uniqueQueue) {
-        finalOpId = await findUserInProject(name, pid);
-        if (finalOpId) {
-            console.log(`Found User '${name}' (ID: ${finalOpId}) in Project ${pid}`);
-            break;
+        for (const pid of uniqueQueue) {
+            finalOpId = await findUserInProject(name, pid, session);
+            if (finalOpId) {
+                console.log(`Found User '${name}' (ID: ${finalOpId}) in Project ${pid}`);
+                break;
+            }
         }
+    } else {
+        console.warn('Skipping auto-search: Not logged in.');
     }
 
-    if (!finalOpId) {
+    if (!finalOpId && session) {
         return res.status(404).json({ error: `Could not find OpenProject user matching '${name}'. Please check the spelling.` });
+    } else if (!finalOpId) {
+        return res.status(401).json({ error: `Please login to verify assignee.` });
     }
 
-    db.get("SELECT * FROM local_assignees WHERE openproject_id = ?", [finalOpId], (err, row) => {
+    dbSqlite.get("SELECT * FROM local_assignees WHERE openproject_id = ?", [finalOpId], (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
         if (row) {
             return res.status(409).json({ error: `Duplicate: '${row.name}' already uses ID ${finalOpId}.` });
         }
 
-        db.run("INSERT INTO local_assignees (name, openproject_id) VALUES (?, ?)", [name, finalOpId], function (err) {
+        dbSqlite.run("INSERT INTO local_assignees (name, openproject_id) VALUES (?, ?)", [name, finalOpId], function (err) {
             if (err) return res.status(500).json({ error: err.message });
             res.json({ id: this.lastID, name: name, openproject_id: finalOpId });
         });
     });
 });
 
-// UPDATE Local Assignee
 app.put('/api/assignees/:id', async (req, res) => {
     const { name, projectId } = req.body;
     const { id } = req.params;
+    const session = getSession(req);
 
     if (!name) return res.status(400).json({ error: 'Name is required' });
+    if (!session) return res.status(401).json({ error: 'Please login first.' });
 
     let finalOpId = null;
 
@@ -290,7 +486,7 @@ app.put('/api/assignees/:id', async (req, res) => {
     const uniqueQueue = [...new Set(searchQueue)];
 
     for (const pid of uniqueQueue) {
-        finalOpId = await findUserInProject(name, pid);
+        finalOpId = await findUserInProject(name, pid, session);
         if (finalOpId) {
             console.log(`Found User '${name}' (ID: ${finalOpId}) in Project ${pid}`);
             break;
@@ -301,38 +497,32 @@ app.put('/api/assignees/:id', async (req, res) => {
         return res.status(404).json({ error: `Could not find OpenProject user matching '${name}'. Please check the spelling.` });
     }
 
-    // Check for duplicate OpenProject ID (excluding current record)
-    db.get("SELECT * FROM local_assignees WHERE openproject_id = ? AND id != ?", [finalOpId, id], (err, row) => {
+    dbSqlite.get("SELECT * FROM local_assignees WHERE openproject_id = ? AND id != ?", [finalOpId, id], (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
         if (row) {
             return res.status(409).json({ error: `Duplicate: '${row.name}' already uses ID ${finalOpId}.` });
         }
 
-        db.run("UPDATE local_assignees SET name = ?, openproject_id = ? WHERE id = ?", [name, finalOpId, id], function (err) {
+        dbSqlite.run("UPDATE local_assignees SET name = ?, openproject_id = ? WHERE id = ?", [name, finalOpId, id], function (err) {
             if (err) return res.status(500).json({ error: err.message });
             res.json({ message: 'Updated successfully' });
         });
     });
 });
 
-// DELETE Local Assignee
 app.delete('/api/assignees/:id', (req, res) => {
     const { id } = req.params;
-    db.run("DELETE FROM local_assignees WHERE id = ?", [id], function (err) {
+    dbSqlite.run("DELETE FROM local_assignees WHERE id = ?", [id], function (err) {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ message: 'Deleted successfully' });
     });
 });
 
-// Return empty list for old dynamic endpoint (Frontend will be updated to use /api/assignees)
-app.get('/api/projects/:id/assignees', (req, res) => {
-    res.json([]);
-});
-
-// API to create Work Package
 app.post('/api/work_packages', async (req, res) => {
     const { projectId, subject, assigneeId, startDate, dueDate, percentageDone, spentHours } = req.body;
-    // Note: assigneeId here is the LOCAL database ID now, not the OpenProject ID directly.
+    const session = getSession(req);
+
+    if (!session) return res.status(401).json({ error: 'Please login first.' });
 
     if (!projectId || !subject) {
         return res.status(400).json({ error: 'Missing projectId or subject' });
@@ -341,10 +531,9 @@ app.post('/api/work_packages', async (req, res) => {
     try {
         let openProjectAssigneeId = null;
 
-        // Lookup OpenProject ID from Local DB if assigneeId is provided
         if (assigneeId) {
             const assignee = await new Promise((resolve, reject) => {
-                db.get("SELECT openproject_id FROM local_assignees WHERE id = ?", [assigneeId], (err, row) => {
+                dbSqlite.get("SELECT openproject_id FROM local_assignees WHERE id = ?", [assigneeId], (err, row) => {
                     if (err) reject(err);
                     else resolve(row);
                 });
@@ -354,7 +543,7 @@ app.post('/api/work_packages', async (req, res) => {
             }
         }
 
-        console.log(`Creating Task '${subject}' in Project ${projectId} with Assignee OP-ID: ${openProjectAssigneeId}...`);
+        console.log(`Creating Task '${subject}' in Project ${projectId}...`);
         const url = `${HOST}/api/v3/projects/${projectId}/work_packages`;
 
         const payload = {
@@ -364,7 +553,7 @@ app.post('/api/work_packages', async (req, res) => {
             dueDate: dueDate || null,
             "_links": {
                 "type": {
-                    "href": "/api/v3/types/1" // ID 1 is 'Task'
+                    "href": "/api/v3/types/1"
                 }
             }
         };
@@ -375,20 +564,18 @@ app.post('/api/work_packages', async (req, res) => {
             };
         }
 
-        // Clean up nulls
         if (!payload.startDate) delete payload.startDate;
         if (!payload.dueDate) delete payload.dueDate;
 
         const result = await puppeteerFetch(url, {
             method: 'POST',
             body: JSON.stringify(payload)
-        });
+        }, session);
 
         if (result.status >= 200 && result.status < 300) {
             const newWorkPackageId = result.data.id;
             const webUrl = `${HOST}/work_packages/${newWorkPackageId}`;
 
-            // --- Log Time Logic ---
             let timeLogged = false;
             let timeError = null;
 
@@ -396,16 +583,13 @@ app.post('/api/work_packages', async (req, res) => {
                 console.log(`Logging ${spentHours} hours for WP #${newWorkPackageId}...`);
                 const timeUrl = `${HOST}/api/v3/time_entries`;
 
-                // Construct ISO duration (PT<N>H)
-                // If float (e.g. 1.5), ISO duration supports PT1.5H or PT1H30M.
-                // OpenProject usually supports PT1.5H.
                 const isoDuration = `PT${spentHours}H`;
                 const dateToLog = startDate || new Date().toISOString().split('T')[0];
 
                 const timePayload = {
                     "_links": {
                         "workPackage": { "href": `/api/v3/work_packages/${newWorkPackageId}` },
-                        "activity": { "href": "/api/v3/time_entries/activities/1" } // Corrected URI as per API error
+                        "activity": { "href": "/api/v3/time_entries/activities/1" }
                     },
                     "hours": isoDuration,
                     "spentOn": dateToLog,
@@ -415,18 +599,15 @@ app.post('/api/work_packages', async (req, res) => {
                 const timeResult = await puppeteerFetch(timeUrl, {
                     method: 'POST',
                     body: JSON.stringify(timePayload)
-                });
+                }, session);
 
                 if (timeResult.status >= 200 && timeResult.status < 300) {
                     timeLogged = true;
-                    console.log('Time entry created successfully.');
                 } else {
-                    timeError = timeResult.data.message || 'Failed to create time entry'; // Try to extract error
-                    // If activity ID 1 is invalid, it might fail.
+                    timeError = timeResult.data.message || 'Failed to create time entry';
                     console.error('Failed to log time:', timeResult.status, JSON.stringify(timeResult.data));
                 }
             }
-            // ---------------------
 
             res.json({
                 ...result.data,
@@ -444,5 +625,5 @@ app.post('/api/work_packages', async (req, res) => {
 
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
-    console.log(`Database file should be at: ${require('path').resolve(dbFile)}`);
+    console.log(`Target Host: ${HOST}`);
 });

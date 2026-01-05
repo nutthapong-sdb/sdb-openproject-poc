@@ -20,7 +20,7 @@ async function fetchRecentWorkPackages() {
 
     // Launch settings optimized for stealth
     const browser = await puppeteer.launch({
-        headless: false, // Run in visible mode
+        headless: true, // Run in visible mode
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
