@@ -92,10 +92,24 @@
                 </div>
 
                 <div class="form-group">
-                    <label>Dates</label>
-                    <div style="display: flex; gap: 10px;">
-                        <input type="date" id="startDate" placeholder="Start Date">
-                        <input type="date" id="dueDate" placeholder="Finish Date">
+                    <label for="startDate">Start Date</label>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <input type="date" id="startDate" style="flex: 1;">
+                        <button type="button" id="todayBtn" title="Set Start Date to Today"
+                            style="width: auto; padding: 0 15px; height: 46px; white-space: nowrap;">
+                            Today
+                        </button>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="dueDate">Finish Date</label>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <input type="date" id="dueDate" style="flex: 1;">
+                        <button type="button" id="sameDateBtn" title="Set End Date same as Start Date"
+                            style="width: auto; padding: 0 15px; height: 46px; white-space: nowrap;">
+                            Same as Start Date
+                        </button>
                     </div>
                 </div>
 

@@ -214,6 +214,29 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     });
 
+    // Today Button
+    document.getElementById('todayBtn').addEventListener('click', () => {
+        const today = new Date().toISOString().split('T')[0];
+        document.getElementById('startDate').value = today;
+    });
+
+    // Same Date Button
+    document.getElementById('sameDateBtn').addEventListener('click', () => {
+        const startDate = document.getElementById('startDate').value;
+        if (startDate) {
+            document.getElementById('dueDate').value = startDate;
+        } else {
+            Swal.fire({
+                icon: 'info',
+                text: 'Please select a Start Date first.',
+                toast: true,
+                position: 'top-end',
+                showConfirmButton: false,
+                timer: 3000
+            });
+        }
+    });
+
     // Detect Project Change to fetch Assignees - REMOVED for Local Management
     // $('#projectId').on('select2:select', ...);
 
