@@ -340,11 +340,11 @@ async function findUserInProject(name, projectId) {
 
 // ADD Local Assignee
 app.post('/api/assignees', async (req, res) => {
-    const { name, projectId } = req.body;
+    const { name, projectId, openProjectId } = req.body;
 
     if (!name) return res.status(400).json({ error: 'Name is required' });
 
-    let finalOpId = null;
+    let finalOpId = openProjectId || null;
 
     // Search Strategy:
     // 1. If project context provided, search there first.
@@ -359,11 +359,13 @@ app.post('/api/assignees', async (req, res) => {
     // Remove duplicates
     const uniqueQueue = [...new Set(searchQueue)];
 
-    for (const pid of uniqueQueue) {
-        finalOpId = await findUserInProject(name, pid);
-        if (finalOpId) {
-            console.log(`Found User '${name}' (ID: ${finalOpId}) in Project ${pid}`);
-            break;
+    if (!finalOpId) {
+        for (const pid of uniqueQueue) {
+            finalOpId = await findUserInProject(name, pid);
+            if (finalOpId) {
+                console.log(`Found User '${name}' (ID: ${finalOpId}) in Project ${pid}`);
+                break;
+            }
         }
     }
 

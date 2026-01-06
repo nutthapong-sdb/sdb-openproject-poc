@@ -75,8 +75,63 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     };
 
+    // --- History Logic (LocalStorage) ---
+    const loadHistory = () => {
+        const historyBody = document.getElementById('historyBody');
+        const history = JSON.parse(localStorage.getItem('task_history') || '[]');
+
+        if (history.length === 0) {
+            historyBody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px; color: #777;">No recent tasks created.</td></tr>';
+            return;
+        }
+
+        historyBody.innerHTML = '';
+        // Show newest first
+        [...history].reverse().forEach(item => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td style="padding: 12px 10px; border-bottom: 1px solid #333; color: #aaa; font-size: 0.85rem;">${item.timestamp}</td>
+                <td style="padding: 12px 10px; border-bottom: 1px solid #333; font-weight: 500;">${item.subject}</td>
+                <td style="padding: 12px 10px; border-bottom: 1px solid #333; color: #aaa;">${item.projectName}</td>
+                <td style="padding: 12px 10px; border-bottom: 1px solid #333;">${item.startDate || '-'}</td>
+                <td style="padding: 12px 10px; border-bottom: 1px solid #333;">${item.dueDate || '-'}</td>
+                <td style="padding: 12px 10px; border-bottom: 1px solid #333; text-align: center;">${item.spentHours ? item.spentHours + ' h' : '-'}</td>
+                <td style="padding: 12px 10px; border-bottom: 1px solid #333; text-align: center;"><a href="${item.webUrl}" target="_blank" class="history-link" style="color: #FF8F00;">View</a></td>
+            `;
+            historyBody.appendChild(row);
+        });
+    };
+
+    const addToHistory = (task) => {
+        const history = JSON.parse(localStorage.getItem('task_history') || '[]');
+        const now = new Date();
+        const timeString = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+
+        history.push({
+            timestamp: timeString,
+            subject: task.subject,
+            projectName: task.projectName,
+            startDate: task.startDate,
+            dueDate: task.dueDate,
+            spentHours: task.spentHours,
+            webUrl: task.webUrl,
+            id: task.id
+        });
+
+        // Keep last 50
+        if (history.length > 50) history.shift();
+
+        localStorage.setItem('task_history', JSON.stringify(history));
+        loadHistory();
+    };
+
+    // Refresh Button
+    const refreshHistoryBtn = document.getElementById('refreshHistoryBtn');
+    if (refreshHistoryBtn) refreshHistoryBtn.addEventListener('click', loadHistory);
+
     // Load on start
     loadAssignees();
+    loadHistory();
 
     // Logout Logic
     const logoutBtn = document.getElementById('logoutBtn');
@@ -267,24 +322,93 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Detect Project Change to fetch Assignees - REMOVED for Local Management
     // $('#projectId').on('select2:select', ...);
 
+    // --- Auto-Assign Self Helper ---
+    const getSelfAssigneeId = async () => {
+        try {
+            // 1. Get Current User Info
+            const userRes = await fetch('/api/user');
+            if (!userRes.ok) return null;
+            const userData = await userRes.json();
+            const myOpId = userData.id;
+            const myName = userData.name || (userData.firstName + ' ' + userData.lastName);
+
+            if (!myOpId) return null;
+
+            // 2. Check if exists in dropdown
+            let existingVal = null;
+            $('#assigneeId option').each(function () {
+                if ($(this).text().trim() === myName.trim()) {
+                    existingVal = $(this).val();
+                    return false;
+                }
+            });
+
+            if (existingVal) return existingVal;
+
+            // 3. Create New via API
+            const createRes = await fetch('/api/assignees', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: myName,
+                    projectId: $('#projectId').val(),
+                    openProjectId: myOpId
+                })
+            });
+
+            if (!createRes.ok) return null;
+
+            const newAssignee = await createRes.json();
+
+            // Add to dropdown
+            const newOption = new Option(newAssignee.name, newAssignee.id, true, true);
+            $('#assigneeId').append(newOption).trigger('change');
+
+            return newAssignee.id;
+
+        } catch (e) {
+            console.error('Auto-assign self error:', e);
+            return null;
+        }
+    };
+
     // 2. Handle Form Submit
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
 
         // Get values
         const projectId = $('#projectId').val();
-        const assigneeId = $('#assigneeId').val();
+        let assigneeId = $('#assigneeId').val();
         const subject = document.getElementById('taskName').value;
-        const startDate = document.getElementById('startDate').value;
-        const dueDate = document.getElementById('dueDate').value;
-        const percentageDone = document.getElementById('percentageDone').value;
-        const spentHours = document.getElementById('spentHours').value; // Get hours
 
-        if (!projectId || !subject) {
+        // Auto-Assign Self if empty
+        if (!assigneeId) {
+            assigneeId = await getSelfAssigneeId();
+        }
+        let startDate = document.getElementById('startDate').value;
+        let dueDate = document.getElementById('dueDate').value;
+        const percentageDone = document.getElementById('percentageDone').value;
+        let spentHours = document.getElementById('spentHours').value;
+
+        // Default to 1 hour if empty
+        if (!spentHours) spentHours = '1';
+
+        // Auto-fill Dates Logic
+        const today = new Date().toISOString().split('T')[0];
+
+        if (!startDate) {
+            startDate = today;
+        }
+
+        if (!dueDate) {
+            dueDate = startDate;
+        }
+
+        if (!projectId || !subject || !assigneeId) {
             Swal.fire({
                 icon: 'warning',
                 title: 'Missing Info',
-                text: 'Please select a project and enter a task name.',
+                text: 'Please select Project, Assignee, and enter Task Name.',
                 confirmButtonColor: '#FF8F00'
             });
             return;
@@ -351,13 +475,28 @@ document.addEventListener('DOMContentLoaded', async () => {
                     html: `<a href="${result.webUrl}" target="_blank" style="color: #333; text-decoration: underline;">View Work Package #${result.id}</a>`
                 });
 
+                // Update History
+                addToHistory({
+                    subject: subject,
+                    projectName: $('#projectId').find(':selected').text() || 'Unknown Project',
+                    webUrl: result.webUrl,
+                    startDate: startDate,
+                    dueDate: dueDate,
+                    spentHours: spentHours,
+                    id: result.id
+                });
+
                 // Reset Form
                 document.getElementById('taskName').value = '';
                 document.getElementById('startDate').value = '';
                 document.getElementById('dueDate').value = '';
-                document.getElementById('spentHours').value = ''; // Reset hours
-                document.getElementById('percentageDone').value = '0';
-                percentBtns.forEach(b => b.classList.remove('active'));
+                document.getElementById('spentHours').value = '1';
+                document.getElementById('percentageDone').value = '100';
+
+                percentBtns.forEach(b => {
+                    b.classList.remove('active');
+                    if (b.dataset.value === '100') b.classList.add('active');
+                });
 
                 $('#projectId').val(null).trigger('change'); // Reset Select2
                 $('#assigneeId').val(null).trigger('change').prop('disabled', true); // Reset Assignee
