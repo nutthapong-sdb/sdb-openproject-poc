@@ -18,7 +18,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('dueDate').value = today;
 
     // Initialize Select2 with AJAX (Projects)
-    $('#projectId').select2({
+    const projectSelect = $('#projectId').select2({
         width: '100%',
         placeholder: 'Search for a project...',
         minimumInputLength: 0,
@@ -50,6 +50,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             cache: true
         }
     });
+
+    // Load Last Used Project from LocalStorage
+    const lastProject = JSON.parse(localStorage.getItem('lastProject') || 'null');
+    if (lastProject && lastProject.id) {
+        const option = new Option(lastProject.name, lastProject.id, true, true);
+        projectSelect.append(option).trigger('change');
+    }
 
     // Initialize Select2 for Assignee (Standard Select, populated dynamically)
     const assigneeSelect = $('#assigneeId').select2({
@@ -541,6 +548,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                     spentHours: spentHours,
                     id: result.id
                 });
+
+                // Save Last Used Project
+                localStorage.setItem('lastProject', JSON.stringify({
+                    id: projectId,
+                    name: $('#projectId').find(':selected').text() || 'Unknown Project'
+                }));
 
                 // Reset Form
                 document.getElementById('taskName').value = '';
