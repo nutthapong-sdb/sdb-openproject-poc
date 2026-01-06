@@ -145,9 +145,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             // Attach delete handlers
             document.querySelectorAll('.delete-history-btn').forEach(btn => {
                 btn.addEventListener('click', (e) => {
-                    const historyId = e.target.dataset.id;
-                    const opId = e.target.dataset.opId;
-                    const subject = e.target.dataset.subject;
+                    const btnElement = e.currentTarget;
+                    const historyId = btnElement.dataset.id;
+                    const opId = btnElement.dataset.opId;
+                    const subject = btnElement.dataset.subject;
                     deleteFromHistory(historyId, opId, subject);
                 });
             });
@@ -192,7 +193,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             loadHistory();
 
-            if (opResponse.ok) {
+            if (opResponse.ok || opResponse.status === 404) {
                 Swal.fire({
                     icon: 'success',
                     title: 'Deleted!',
@@ -204,7 +205,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 Swal.fire({
                     icon: 'warning',
                     title: 'Partially Deleted',
-                    text: 'Removed from history, but could not delete from OpenProject.'
+                    text: 'Removed from history, but could not delete from OpenProject (it might have been deleted already).'
                 });
             }
         } catch (error) {

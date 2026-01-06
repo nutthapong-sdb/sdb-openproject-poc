@@ -521,6 +521,7 @@ app.delete('/api/history/:id', (req, res) => {
     }
 
     const { id } = req.params;
+    console.log(`Deleting from local history: ID=${id}, UserID=${userId}`);
 
     db.run(
         "DELETE FROM task_history WHERE id = ? AND user_id = ?",
@@ -678,6 +679,9 @@ app.delete('/api/work_packages/:id', async (req, res) => {
         if (result.status >= 200 && result.status < 300) {
             console.log(`Work Package #${id} deleted successfully.`);
             res.json({ success: true, message: `Work Package #${id} deleted.` });
+        } else if (result.status === 404) {
+            console.log(`Work Package #${id} not found in OpenProject. Treating as success.`);
+            res.json({ success: true, message: `Work Package #${id} was already deleted or not found.` });
         } else {
             console.error('Failed to delete:', result.status, result.data);
             res.status(result.status).json({ error: result.data?.message || 'Failed to delete work package' });
