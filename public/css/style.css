@@ -24,24 +24,26 @@ body {
     color: var(--text-color);
     display: flex;
     justify-content: center;
-    align-items: flex-start; /* Align top for long content */
+    align-items: flex-start;
+    /* Aliign top */
     min-height: 100vh;
-    padding-top: 40px; /* Add some top space */
-    padding-bottom: 40px;
+    padding: 40px 20px;
 }
 
 /* New Layout System */
 .main-wrapper {
     width: 100%;
-    max-width: 1200px; /* Wide layout */
-    padding: 0 20px;
+    max-width: 1400px;
+    /* Wide layout */
 }
 
 .content-row {
     display: flex;
-    flex-wrap: wrap; /* Stack on mobile */
-    gap: 30px;
+    flex-wrap: wrap;
+    /* Stack on mobile */
+    gap: 20px;
     justify-content: center;
+    align-items: flex-start;
 }
 
 .panel {
@@ -51,82 +53,51 @@ body {
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
     border: 1px solid var(--border-color);
     flex: 1;
-    min-width: 350px; /* Valid minimum width */
-    max-width: 500px; /* Don't get too wide on large screens */
-    display: flex;
-    flex-direction: column;
+    min-width: 350px;
+}
+
+.left-panel {
+    max-width: 500px;
 }
 
 .right-panel {
-    max-width: 600px; /* History can be wider */
+    flex: 1.5;
+    /* Wider history panel */
+    min-width: 400px;
 }
 
-/* History Table Styles */
+/* History Table */
 .history-container {
-    flex: 1;
-    overflow-y: auto;
-    max-height: 500px;
-    margin-bottom: 1rem;
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
+    overflow-x: auto;
 }
 
-.history-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.9rem;
-}
-
-.history-table th, .history-table td {
-    padding: 12px;
-    text-align: left;
-    border-bottom: 1px solid var(--border-color);
-}
-
-.history-table th {
-    background-color: var(--input-bg);
+#historyTable th {
     color: var(--primary-color);
-    position: sticky;
-    top: 0;
     font-weight: 600;
 }
 
-.history-table tr:hover {
-    background-color: rgba(255, 255, 255, 0.03);
+#historyTable td {
+    padding: 12px 10px;
+    border-bottom: 1px solid #333;
+    font-size: 0.9rem;
 }
 
-.secondary-btn {
-    background-color: transparent;
-    border: 1px solid var(--border-color);
-    color: var(--text-muted);
+#historyTable tr:last-child td {
+    border-bottom: none;
 }
 
-.secondary-btn:hover {
-    border-color: var(--text-color);
-    color: var(--text-color);
-    background-color: rgba(255,255,255,0.05);
-    transform: none;
-}
-
-.view-link {
-    text-decoration: none;
+.history-link {
     color: var(--primary-color);
+    text-decoration: none;
     font-weight: 500;
-    font-size: 0.85rem;
-    padding: 4px 10px;
-    border: 1px solid var(--primary-color);
-    border-radius: 4px;
-    transition: all 0.2s;
 }
 
-.view-link:hover {
-    background-color: var(--primary-color);
-    color: #000;
+.history-link:hover {
+    text-decoration: underline;
 }
 
 header {
     margin-bottom: 2rem;
-    text-align: center;
 }
 
 header h1 {
@@ -165,7 +136,6 @@ select {
     font-size: 1rem;
     transition: all 0.3s ease;
     appearance: none;
-    /* Remove default arrow for custom styling if needed */
 }
 
 select {
@@ -178,7 +148,6 @@ select {
 
 input[type="text"]:focus,
 input[type="number"]:focus,
-input[type="password"]:focus,
 select:focus {
     outline: none;
     border-color: var(--primary-color);
@@ -211,13 +180,6 @@ button:disabled {
     opacity: 0.7;
     cursor: not-allowed;
     transform: none;
-}
-
-footer {
-    margin-top: 2rem;
-    text-align: center;
-    font-size: 0.8rem;
-    color: var(--text-muted);
 }
 
 /* Loader */
@@ -254,7 +216,6 @@ div:where(.swal2-container) .swal2-title {
 
 .colored-toast.swal2-icon-success {
     background-color: #77DD77 !important;
-    /* Pastel Green */
     color: #fff !important;
     border: 1px solid #77DD77 !important;
 }
@@ -263,7 +224,6 @@ div:where(.swal2-container) .swal2-title {
 .colored-toast.swal2-icon-success .swal2-content,
 .colored-toast.swal2-icon-success .swal2-html-container {
     color: #333333 !important;
-    /* Darker text for better contrast on pastel */
 }
 
 /* Date Inputs */
@@ -276,7 +236,6 @@ input[type="date"] {
     color: var(--text-color);
     font-size: 1rem;
     color-scheme: dark;
-    /* Ensures calendar popup is dark in supported browsers */
 }
 
 /* Percentage Buttons Groups */
@@ -297,7 +256,6 @@ input[type="date"] {
     font-size: 0.9rem;
     transition: all 0.2s;
     display: inline-block;
-    /* Ensure it behaves like button */
     text-align: center;
 }
 

@@ -1,18 +1,16 @@
 document.addEventListener('DOMContentLoaded', async () => {
-    // Check User Status
-    checkUserStatus();
-
-    // DEBUG: Test Project API directly
-    fetch('/api/projects')
-        .then(r => {
-            console.log('DEBUG: /api/projects status:', r.status);
-            return r.json().then(d => console.log('DEBUG: /api/projects data:', d));
-        })
-        .catch(e => console.error('DEBUG: /api/projects error:', e));
-
-    // Event Listeners for Auth
-    // $(document).on('click', '#loginBtn', openLoginModal); // Removed
-    $(document).on('click', '#logoutBtn', handleLogout);
+    // Fetch User Info
+    try {
+        const userRes = await fetch('/api/user');
+        if (userRes.ok) {
+            const userData = await userRes.json();
+            const displayName = userData.firstName ? `${userData.firstName} ${userData.lastName}` : (userData.name || 'User');
+            // Try to use full name if available, else name
+            document.getElementById('userNameDisplay').textContent = displayName;
+        }
+    } catch (e) {
+        console.error('Failed to load user info', e);
+    }
 
     // Initialize Select2 with AJAX (Projects)
     $('#projectId').select2({
@@ -29,10 +27,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 };
             },
             processResults: function (data) {
-                console.log('DEBUG: Select2 processResults received:', data);
-                // Check if error (401)
-                if (data.error) return { results: [] };
-
                 // Ensure array
                 let projects = [];
                 if (Array.isArray(data)) {
@@ -48,13 +42,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }))
                 };
             },
-            cache: true,
-            error: function (jqXHR, textStatus, errorThrown) {
-                if (jqXHR.status === 401) {
-                    // Trigger re-login or just show empty
-                    console.log('Unauthorized fetch of projects');
-                }
-            }
+            cache: true
         }
     });
 
@@ -89,6 +77,20 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Load on start
     loadAssignees();
+
+    // Logout Logic
+    const logoutBtn = document.getElementById('logoutBtn');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', async () => {
+            try {
+                await fetch('/api/logout', { method: 'POST' });
+                window.location.href = '/login.html';
+            } catch (e) {
+                console.error('Logout failed', e);
+                window.location.href = '/login.html';
+            }
+        });
+    }
 
     // Manage Assignees Button Logic
     document.getElementById('manageAssigneesBtn').addEventListener('click', async () => {
@@ -360,9 +362,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 $('#projectId').val(null).trigger('change'); // Reset Select2
                 $('#assigneeId').val(null).trigger('change').prop('disabled', true); // Reset Assignee
 
-                // Refresh History
-                loadHistory();
-
             } else {
                 throw new Error(result.errorIdentifier || result.message || 'Unknown error');
             }
@@ -382,89 +381,4 @@ document.addEventListener('DOMContentLoaded', async () => {
             btnLoader.style.display = 'none';
         }
     });
-
-    // --- History Logic ---
-    const historyTableBody = document.getElementById('historyTableBody');
-    const refreshHistoryBtn = document.getElementById('refreshHistoryBtn');
-
-    async function loadHistory() {
-        if (!historyTableBody) return;
-        try {
-            // Only show loader if empty to avoid flicker on refresh
-            if (historyTableBody.children.length === 0 || historyTableBody.children[0].textContent.includes('Checking')) {
-                historyTableBody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: var(--text-muted);">Loading...</td></tr>';
-            }
-
-            const response = await fetch('/api/history');
-            const data = await response.json();
-
-            historyTableBody.innerHTML = '';
-
-            if (data.length === 0) {
-                historyTableBody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: var(--text-muted);">No recent tasks.</td></tr>';
-                return;
-            }
-
-            data.forEach(item => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td style="font-weight: 500; color: var(--text-color);">${item.subject}</td>
-                    <td style="color: var(--text-muted); font-size: 0.85rem;">${item.project_name || 'N/A'}</td>
-                    <td>
-                        <a href="${item.link}" target="_blank" class="view-link">View</a>
-                    </td>
-                `;
-                historyTableBody.appendChild(tr);
-            });
-
-        } catch (error) {
-            console.error('Error loading history:', error);
-            historyTableBody.innerHTML = '<tr><td colspan="3" style="text-align:center; color: var(--danger-color);">Failed to load history.</td></tr>';
-        }
-    }
-
-    // Init Load
-    loadHistory();
-
-    // Bind Refresh
-    if (refreshHistoryBtn) {
-        refreshHistoryBtn.addEventListener('click', loadHistory);
-    }
 });
-
-
-
-
-// --- Authentication Helpers ---
-
-async function checkUserStatus() {
-    try {
-        const response = await fetch('/api/user');
-        if (response.ok) {
-            const user = await response.json();
-            renderUserLoggedIn(user);
-            // Enable app
-            $('main').css('opacity', '1').css('pointer-events', 'auto');
-        } else {
-            // Not logged in -> Redirect to Login Page
-            window.location.href = '/login.html';
-        }
-    } catch (e) {
-        window.location.href = '/login.html';
-    }
-}
-
-function renderUserLoggedIn(user) {
-    const html = `
-        <span style="font-size: 0.9rem; color: #aaa;">Hi, ${user.name}</span>
-        <button id="logoutBtn" style="width: auto; padding: 6px 12px; font-size: 0.8rem; background-color: #333; border: 1px solid #555; color: #fff; cursor: pointer;">Logout</button>
-    `;
-    $('#userControls').html(html);
-}
-
-// openLoginModal removed - using login.html
-
-async function handleLogout() {
-    await fetch('/api/logout', { method: 'POST' });
-    window.location.href = '/login.html';
-}

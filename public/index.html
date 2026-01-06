@@ -59,20 +59,27 @@
 </head>
 
 <body>
-    <div id="userControls"
-        style="position: absolute; top: 20px; right: 20px; display: flex; align-items: center; gap: 10px; z-index: 1000;">
-        <!-- Content injected by JS -->
-    </div>
-
     <div class="main-wrapper">
-        <div class="content-row">
+        <header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;">
+            <h1 style="color: var(--primary-color); margin: 0; font-size: 1.8rem;">OpenProject Task Manager</h1>
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <span id="userNameDisplay"
+                    style="color: var(--text-color); font-weight: 500; font-size: 1rem;">Loading...</span>
+                <button id="logoutBtn"
+                    style="width: auto; padding: 8px 20px; background-color: var(--primary-color); color: #000; font-weight: 600; border: none; border-radius: 8px; cursor: pointer; font-size: 0.9rem;">
+                    Logout
+                </button>
+            </div>
+        </header>
 
-            <!-- LEFT PANEL: FORM -->
+        <div class="content-row">
+            <!-- Left Panel: Create Task -->
             <div class="panel left-panel">
                 <header>
-                    <h1>Create New Task</h1>
+                    <h2>Create New Task</h2>
                     <p>Add a new work package to OpenProject</p>
                 </header>
+
                 <main>
                     <form id="createTaskForm">
                         <div class="form-group">
@@ -144,42 +151,34 @@
                         </button>
                     </form>
                 </main>
-                <footer>
-                    <p>Powered by OpenProject API</p>
-                </footer>
             </div>
 
-            <!-- RIGHT PANEL: HISTORY -->
+            <!-- Right Panel: History -->
             <div class="panel right-panel">
-                <header>
-                    <h1>History</h1>
-                    <p>Recently created tasks</p>
-                </header>
-
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2>Recent History</h2>
+                    <button id="refreshHistoryBtn"
+                        style="width: auto; padding: 5px 15px; font-size: 0.9rem;">Refresh</button>
+                </div>
                 <div class="history-container">
-                    <table class="history-table">
+                    <table id="historyTable" style="width: 100%; border-collapse: collapse; color: #eee;">
                         <thead>
-                            <tr>
-                                <th style="width: 40%;">Task</th>
-                                <th style="width: 30%;">Project</th>
-                                <th style="width: 30%;">Action</th>
+                            <tr style="border-bottom: 2px solid #333;">
+                                <th style="padding: 10px; text-align: left;">Time</th>
+                                <th style="padding: 10px; text-align: left;">Task</th>
+                                <th style="padding: 10px; text-align: left;">Project</th>
+                                <th style="padding: 10px; text-align: center;">Link</th>
                             </tr>
                         </thead>
-                        <tbody id="historyTableBody">
-                            <!-- Populated by JS -->
+                        <tbody id="historyBody">
                             <tr>
-                                <td colspan="3" style="text-align:center; color: var(--text-muted); padding: 20px;">
-                                    Checking history...</td>
+                                <td colspan="4" style="text-align: center; padding: 20px; color: #777;">Loading
+                                    history...</td>
                             </tr>
                         </tbody>
                     </table>
                 </div>
-
-                <button id="refreshHistoryBtn" class="secondary-btn">
-                    Refresh History
-                </button>
             </div>
-
         </div>
     </div>
 

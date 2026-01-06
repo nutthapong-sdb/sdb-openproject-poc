@@ -11,25 +11,25 @@
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 </head>
 
-<body style="flex-direction: column;">
-    <div class="container" style="max-width: 400px; text-align: center;">
+<body style="flex-direction: column; justify-content: center; align-items: center; min-height: 100vh; padding: 0;">
+    <div class="panel" style="max-width: 450px; text-align: center; width: 100%; flex: none; height: auto;">
         <header>
             <h1>Sign in</h1>
             <p>OpenProject Helper for Softdebut</p>
         </header>
 
-        <form id="loginForm" style="margin-top: 30px;">
+        <form id="loginForm" style="margin-top: 5px;">
             <div class="form-group">
-                <input type="text" id="username" class="form-control" placeholder="Username or Email" required
-                    style="text-align: center; font-size: 1.1rem; padding: 15px;">
-            </div>
-            <div class="form-group">
-                <input type="password" id="password" class="form-control" placeholder="Password" required
-                    style="text-align: center; font-size: 1.1rem; padding: 15px;">
+                <label for="apikey" style="display:block; margin-bottom: 10px; color: #ccc;">OpenProject API Key</label>
+                <input type="password" id="apikey" class="form-control" placeholder="Paste API Key here..." required
+                    style="text-align: center; font-size: 1.1rem; padding: 15px; font-family: monospace; letter-spacing: 1px;">
+                <small style="display: block; margin-top: 10px; color: #666; font-size: 0.8rem;">
+                    Go to <b>My Account > Access Tokens</b> to generate one.
+                </small>
             </div>
 
             <button type="submit" id="loginBtn" style="margin-top: 20px;">
-                <span id="btnText">Login</span>
+                <span id="btnText">Connect</span>
                 <div id="btnLoader" class="loader"></div>
             </button>
         </form>
@@ -37,81 +37,54 @@
 
     <script>
         $(document).ready(function () {
+            // Check if already logged in
+            fetch('/api/user').then(res => {
+                if (res.ok) window.location.href = '/';
+            });
+
             $('#loginForm').on('submit', async function (e) {
                 e.preventDefault();
 
-                const username = $('#username').val();
-                const password = $('#password').val();
-                const btn = $('#loginBtn');
-                const loader = $('#btnLoader');
-                const text = $('#btnText');
-
-                btn.prop('disabled', true);
-                text.hide();
-                loader.show();
-
-                // Show custom loading text
-                const loadingText = $('<div id="loadingText" style="margin-top: 5px; font-size: 0.8rem;">&nbsp; Verifying credentials with OpenProject, please wait up to 30 seconds...</div>');
-                if ($('#loadingText').length === 0) {
-                    btn.append(loadingText);
-                } else {
-                    $('#loadingText').show();
+                const apikey = $('#apikey').val();
+                if (!apikey) {
+                    Swal.fire('Error', 'Please enter your API Key', 'error');
+                    return;
                 }
+
+                // UI Loading State
+                $('#loginBtn').prop('disabled', true);
+                $('#btnText').hide();
+                $('#btnLoader').show();
 
                 try {
                     const res = await fetch('/api/login', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ username, password })
+                        body: JSON.stringify({ apikey })
                     });
 
                     const data = await res.json();
 
                     if (res.ok) {
-                        // Success toast
-                        const Toast = Swal.mixin({
-                            toast: true,
-                            position: 'top-end',
-                            showConfirmButton: false,
-                            timer: 1500,
-                            didOpen: (toast) => {
-                                toast.addEventListener('mouseenter', Swal.stopTimer)
-                                toast.addEventListener('mouseleave', Swal.resumeTimer)
-                            }
-                        });
-
-                        Toast.fire({
-                            icon: 'success',
-                            title: 'Login successful'
-                        });
-
-                        // Redirect to main app
-                        setTimeout(() => {
-                            window.location.href = '/';
-                        }, 1500);
-
-                    } else {
                         Swal.fire({
-                            icon: 'error',
-                            title: 'Login Failed',
-                            text: data.error,
-                            confirmButtonColor: '#CF6679'
+                            title: 'Connected!',
+                            text: `Welcome, ${data.user.name}`,
+                            icon: 'success',
+                            timer: 1500,
+                            showConfirmButton: false
+                        }).then(() => {
+                            window.location.href = '/';
                         });
-                        btn.prop('disabled', false);
-                        text.show();
-                        loader.hide();
-                        $('#loadingText').hide();
+                    } else {
+                        Swal.fire('Login Failed', data.error || 'Unknown error', 'error');
                     }
-                } catch (e) {
-                    Swal.fire({
-                        icon: 'error',
-                        title: 'Error',
-                        text: e.message
-                    });
-                    btn.prop('disabled', false);
-                    text.show();
-                    loader.hide();
-                    $('#loadingText').hide();
+                } catch (err) {
+                    console.error(err);
+                    Swal.fire('Error', 'Failed to connect to server.', 'error');
+                } finally {
+                    $('#loginBtn').prop('disabled', false);
+                    $('#btnText').show();
+                    $('#btnLoader').hide();
                 }
             });
         });
