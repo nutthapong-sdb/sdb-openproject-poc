@@ -551,6 +551,40 @@ app.post('/api/work_packages', async (req, res) => {
     }
 });
 
+// DELETE Work Package from OpenProject
+app.delete('/api/work_packages/:id', async (req, res) => {
+    const { id } = req.params;
+    const userApiKey = req.cookies.user_apikey;
+
+    if (!userApiKey) {
+        return res.status(401).json({ error: 'Not authenticated. Please login.' });
+    }
+
+    if (!id) {
+        return res.status(400).json({ error: 'Missing work package ID' });
+    }
+
+    try {
+        console.log(`Deleting Work Package #${id}...`);
+        const url = `${HOST}/api/v3/work_packages/${id}`;
+
+        const result = await puppeteerFetch(url, {
+            method: 'DELETE'
+        }, userApiKey);
+
+        if (result.status >= 200 && result.status < 300) {
+            console.log(`Work Package #${id} deleted successfully.`);
+            res.json({ success: true, message: `Work Package #${id} deleted.` });
+        } else {
+            console.error('Failed to delete:', result.status, result.data);
+            res.status(result.status).json({ error: result.data?.message || 'Failed to delete work package' });
+        }
+    } catch (error) {
+        console.error('Delete error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Sync Users Endpoint
 app.get('/api/sync-users', async (req, res) => {
     const userApiKey = req.cookies.user_apikey;
