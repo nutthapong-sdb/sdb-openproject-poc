@@ -24,18 +24,104 @@ body {
     color: var(--text-color);
     display: flex;
     justify-content: center;
-    align-items: center;
+    align-items: flex-start; /* Align top for long content */
     min-height: 100vh;
+    padding-top: 40px; /* Add some top space */
+    padding-bottom: 40px;
 }
 
-.container {
+/* New Layout System */
+.main-wrapper {
     width: 100%;
-    max-width: 450px;
+    max-width: 1200px; /* Wide layout */
+    padding: 0 20px;
+}
+
+.content-row {
+    display: flex;
+    flex-wrap: wrap; /* Stack on mobile */
+    gap: 30px;
+    justify-content: center;
+}
+
+.panel {
     background-color: var(--card-bg);
     padding: 2.5rem;
     border-radius: 16px;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
     border: 1px solid var(--border-color);
+    flex: 1;
+    min-width: 350px; /* Valid minimum width */
+    max-width: 500px; /* Don't get too wide on large screens */
+    display: flex;
+    flex-direction: column;
+}
+
+.right-panel {
+    max-width: 600px; /* History can be wider */
+}
+
+/* History Table Styles */
+.history-container {
+    flex: 1;
+    overflow-y: auto;
+    max-height: 500px;
+    margin-bottom: 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+}
+
+.history-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.history-table th, .history-table td {
+    padding: 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.history-table th {
+    background-color: var(--input-bg);
+    color: var(--primary-color);
+    position: sticky;
+    top: 0;
+    font-weight: 600;
+}
+
+.history-table tr:hover {
+    background-color: rgba(255, 255, 255, 0.03);
+}
+
+.secondary-btn {
+    background-color: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+}
+
+.secondary-btn:hover {
+    border-color: var(--text-color);
+    color: var(--text-color);
+    background-color: rgba(255,255,255,0.05);
+    transform: none;
+}
+
+.view-link {
+    text-decoration: none;
+    color: var(--primary-color);
+    font-weight: 500;
+    font-size: 0.85rem;
+    padding: 4px 10px;
+    border: 1px solid var(--primary-color);
+    border-radius: 4px;
+    transition: all 0.2s;
+}
+
+.view-link:hover {
+    background-color: var(--primary-color);
+    color: #000;
 }
 
 header {

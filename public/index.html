@@ -63,87 +63,124 @@
         style="position: absolute; top: 20px; right: 20px; display: flex; align-items: center; gap: 10px; z-index: 1000;">
         <!-- Content injected by JS -->
     </div>
-    <div class="container">
-        <header>
-            <h1>Create New Task</h1>
-            <p>Add a new work package to OpenProject</p>
-        </header>
 
-        <main>
-            <form id="createTaskForm">
-                <div class="form-group">
-                    <label for="projectId">Project</label>
-                    <select id="projectId" style="width: 100%;" required>
-                        <option value="" disabled selected>Search projects...</option>
-                    </select>
-                </div>
+    <div class="main-wrapper">
+        <div class="content-row">
 
-                <div class="form-group">
-                    <label for="taskName">Task Name</label>
-                    <input type="text" id="taskName" placeholder="Enter task name" required>
-                </div>
+            <!-- LEFT PANEL: FORM -->
+            <div class="panel left-panel">
+                <header>
+                    <h1>Create New Task</h1>
+                    <p>Add a new work package to OpenProject</p>
+                </header>
+                <main>
+                    <form id="createTaskForm">
+                        <div class="form-group">
+                            <label for="projectId">Project</label>
+                            <select id="projectId" style="width: 100%;" required>
+                                <option value="" disabled selected>Search projects...</option>
+                            </select>
+                        </div>
 
-                <div class="form-group">
-                    <label for="assigneeId">Assignee</label>
-                    <div style="display: flex; gap: 10px; align-items: center;">
-                        <select id="assigneeId" style="width: 100%;">
-                            <option value="" disabled selected>Select an Assignee</option>
-                        </select>
-                        <button type="button" id="manageAssigneesBtn"
-                            style="width: 48px; padding: 0; height: 48px; font-size: 1.5rem;"
-                            title="Manage Assignees">+</button>
-                    </div>
-                </div>
+                        <div class="form-group">
+                            <label for="taskName">Task Name</label>
+                            <input type="text" id="taskName" placeholder="Enter task name" required>
+                        </div>
 
-                <div class="form-group">
-                    <label for="startDate">Start Date</label>
-                    <div style="display: flex; gap: 10px; align-items: center;">
-                        <input type="date" id="startDate" style="flex: 1;">
-                        <button type="button" id="todayBtn" title="Set Start Date to Today"
-                            style="width: auto; padding: 0 15px; height: 46px; white-space: nowrap;">
-                            Today
+                        <div class="form-group">
+                            <label for="assigneeId">Assignee</label>
+                            <div style="display: flex; gap: 10px; align-items: center;">
+                                <select id="assigneeId" style="width: 100%;">
+                                    <option value="" disabled selected>Select an Assignee</option>
+                                </select>
+                                <button type="button" id="manageAssigneesBtn"
+                                    style="width: 48px; padding: 0; height: 48px; font-size: 1.5rem;"
+                                    title="Manage Assignees">+</button>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="startDate">Start Date</label>
+                            <div style="display: flex; gap: 10px; align-items: center;">
+                                <input type="date" id="startDate" style="flex: 1;">
+                                <button type="button" id="todayBtn" title="Set Start Date to Today"
+                                    style="width: auto; padding: 0 15px; height: 46px; white-space: nowrap;">
+                                    Today
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="dueDate">Finish Date</label>
+                            <div style="display: flex; gap: 10px; align-items: center;">
+                                <input type="date" id="dueDate" style="flex: 1;">
+                                <button type="button" id="sameDateBtn" title="Set End Date same as Start Date"
+                                    style="width: auto; padding: 0 15px; height: 46px; white-space: nowrap;">
+                                    Same as Start Date
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="spentHours">Time Spent (Hours)</label>
+                            <input type="number" id="spentHours" placeholder="e.g. 2 or 8" min="0" step="0.5">
+                        </div>
+
+                        <div class="form-group">
+                            <label>% Complete</label>
+                            <div class="percentage-group">
+                                <input type="hidden" id="percentageDone" value="0">
+                                <button type="button" class="percent-btn" data-value="0">0%</button>
+                                <button type="button" class="percent-btn" data-value="25">25%</button>
+                                <button type="button" class="percent-btn" data-value="50">50%</button>
+                                <button type="button" class="percent-btn" data-value="75">75%</button>
+                                <button type="button" class="percent-btn" data-value="100">100%</button>
+                            </div>
+                        </div>
+
+                        <button type="submit" id="submitBtn">
+                            <span>Add Task</span>
+                            <div class="loader" id="btnLoader"></div>
                         </button>
-                    </div>
+                    </form>
+                </main>
+                <footer>
+                    <p>Powered by OpenProject API</p>
+                </footer>
+            </div>
+
+            <!-- RIGHT PANEL: HISTORY -->
+            <div class="panel right-panel">
+                <header>
+                    <h1>History</h1>
+                    <p>Recently created tasks</p>
+                </header>
+
+                <div class="history-container">
+                    <table class="history-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 40%;">Task</th>
+                                <th style="width: 30%;">Project</th>
+                                <th style="width: 30%;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="historyTableBody">
+                            <!-- Populated by JS -->
+                            <tr>
+                                <td colspan="3" style="text-align:center; color: var(--text-muted); padding: 20px;">
+                                    Checking history...</td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
 
-                <div class="form-group">
-                    <label for="dueDate">Finish Date</label>
-                    <div style="display: flex; gap: 10px; align-items: center;">
-                        <input type="date" id="dueDate" style="flex: 1;">
-                        <button type="button" id="sameDateBtn" title="Set End Date same as Start Date"
-                            style="width: auto; padding: 0 15px; height: 46px; white-space: nowrap;">
-                            Same as Start Date
-                        </button>
-                    </div>
-                </div>
-
-                <div class="form-group">
-                    <label for="spentHours">Time Spent (Hours)</label>
-                    <input type="number" id="spentHours" placeholder="e.g. 2 or 8" min="0" step="0.5">
-                </div>
-
-                <div class="form-group">
-                    <label>% Complete</label>
-                    <div class="percentage-group">
-                        <input type="hidden" id="percentageDone" value="0">
-                        <button type="button" class="percent-btn" data-value="0">0%</button>
-                        <button type="button" class="percent-btn" data-value="25">25%</button>
-                        <button type="button" class="percent-btn" data-value="50">50%</button>
-                        <button type="button" class="percent-btn" data-value="75">75%</button>
-                        <button type="button" class="percent-btn" data-value="100">100%</button>
-                    </div>
-                </div>
-
-                <button type="submit" id="submitBtn">
-                    <span>Add Task</span>
-                    <div class="loader" id="btnLoader"></div>
+                <button id="refreshHistoryBtn" class="secondary-btn">
+                    Refresh History
                 </button>
-            </form>
-        </main>
+            </div>
 
-        <footer>
-            <p>Powered by OpenProject API</p>
-        </footer>
+        </div>
     </div>
 
     <script src="js/script.js"></script>

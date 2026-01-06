@@ -360,6 +360,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 $('#projectId').val(null).trigger('change'); // Reset Select2
                 $('#assigneeId').val(null).trigger('change').prop('disabled', true); // Reset Assignee
 
+                // Refresh History
+                loadHistory();
+
             } else {
                 throw new Error(result.errorIdentifier || result.message || 'Unknown error');
             }
@@ -379,6 +382,54 @@ document.addEventListener('DOMContentLoaded', async () => {
             btnLoader.style.display = 'none';
         }
     });
+
+    // --- History Logic ---
+    const historyTableBody = document.getElementById('historyTableBody');
+    const refreshHistoryBtn = document.getElementById('refreshHistoryBtn');
+
+    async function loadHistory() {
+        if (!historyTableBody) return;
+        try {
+            // Only show loader if empty to avoid flicker on refresh
+            if (historyTableBody.children.length === 0 || historyTableBody.children[0].textContent.includes('Checking')) {
+                historyTableBody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: var(--text-muted);">Loading...</td></tr>';
+            }
+
+            const response = await fetch('/api/history');
+            const data = await response.json();
+
+            historyTableBody.innerHTML = '';
+
+            if (data.length === 0) {
+                historyTableBody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px; color: var(--text-muted);">No recent tasks.</td></tr>';
+                return;
+            }
+
+            data.forEach(item => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td style="font-weight: 500; color: var(--text-color);">${item.subject}</td>
+                    <td style="color: var(--text-muted); font-size: 0.85rem;">${item.project_name || 'N/A'}</td>
+                    <td>
+                        <a href="${item.link}" target="_blank" class="view-link">View</a>
+                    </td>
+                `;
+                historyTableBody.appendChild(tr);
+            });
+
+        } catch (error) {
+            console.error('Error loading history:', error);
+            historyTableBody.innerHTML = '<tr><td colspan="3" style="text-align:center; color: var(--danger-color);">Failed to load history.</td></tr>';
+        }
+    }
+
+    // Init Load
+    loadHistory();
+
+    // Bind Refresh
+    if (refreshHistoryBtn) {
+        refreshHistoryBtn.addEventListener('click', loadHistory);
+    }
 });
 
 

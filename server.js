@@ -30,18 +30,22 @@ const dbSqlite = new db.Database(DB_SOURCE, (err) => {
             name TEXT NOT NULL,
             openproject_id TEXT UNIQUE
         )`, (err) => {
-            if (!err) {
-                // Pre-seed default assignee
-                const stmt = dbSqlite.prepare("INSERT OR IGNORE INTO local_assignees (name, openproject_id) VALUES (?, ?)");
-                stmt.run("Nutthapong Vivithsurakarn", "614");
-                stmt.finalize();
-            }
+            if (err) console.error("Table creation error:", err.message);
         });
 
         dbSqlite.run(`CREATE TABLE IF NOT EXISTS project_cache (
             id TEXT PRIMARY KEY,
             name TEXT,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`);
+
+        dbSqlite.run(`CREATE TABLE IF NOT EXISTS work_package_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            work_package_id INTEGER,
+            subject TEXT,
+            project_name TEXT,
+            link TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )`);
     }
 });
@@ -97,7 +101,7 @@ async function puppeteerFetch(url, options = {}, sessionData = null, forceSessio
     }
 
     const browser = await puppeteer.launch({
-        headless: 'new',
+        headless: false,
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -112,6 +116,16 @@ async function puppeteerFetch(url, options = {}, sessionData = null, forceSessio
 
     try {
         const page = await browser.newPage();
+
+        // Handle Basic Auth if credentials exist in .env
+        const basicUser = process.env.BASIC_AUTH_USER || process.env.OPENPROJECT_USERNAME;
+        const basicPass = process.env.BASIC_AUTH_PASSWORD || process.env.OPENPROJECT_PASSWORD;
+
+        if (basicUser && basicPass) {
+            console.log("Applying Basic Auth credentials...");
+            await page.authenticate({ username: basicUser, password: basicPass });
+        }
+
         await page.setViewport({ width: 1920, height: 1080 });
 
         // Apply Cookies if Session exists
@@ -672,6 +686,17 @@ app.delete('/api/assignees/:id', (req, res) => {
     });
 });
 
+// --- History Endpoint ---
+app.get('/api/history', (req, res) => {
+    const sql = "SELECT * FROM work_package_history ORDER BY id DESC LIMIT 50";
+    dbSqlite.all(sql, [], (err, rows) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        res.json(rows);
+    });
+});
+
 app.post('/api/work_packages', async (req, res) => {
     const { projectId, subject, assigneeId, startDate, dueDate, percentageDone, spentHours } = req.body;
     const session = getSession(req);
@@ -763,11 +788,24 @@ app.post('/api/work_packages', async (req, res) => {
                 }
             }
 
+            // Save History
+            dbSqlite.get("SELECT name FROM project_cache WHERE id = ?", [projectId], (err, row) => {
+                const pName = row ? row.name : `Project ${projectId}`;
+                dbSqlite.run(
+                    "INSERT INTO work_package_history (work_package_id, subject, project_name, link) VALUES (?, ?, ?, ?)",
+                    [newWorkPackageId, subject, pName, webUrl],
+                    (err) => {
+                        if (err) console.error("History insert error:", err);
+                    }
+                );
+            });
+
             res.json({
-                ...result.data,
-                webUrl,
-                timeLogged,
-                timeError: timeError ? `Note: Task created, but failed to log time (${timeError})` : null
+                message: 'Work package created successfully',
+                id: newWorkPackageId,
+                link: webUrl,
+                timeLogged: timeLogged,
+                timeError: timeError
             });
         } else {
             res.status(result.status).json(result.data);
