@@ -24,23 +24,80 @@ body {
     color: var(--text-color);
     display: flex;
     justify-content: center;
-    align-items: center;
+    align-items: flex-start;
+    /* Aliign top */
     min-height: 100vh;
+    padding: 40px 20px;
 }
 
-.container {
+/* New Layout System */
+.main-wrapper {
     width: 100%;
-    max-width: 450px;
+    max-width: 1400px;
+    /* Wide layout */
+}
+
+.content-row {
+    display: flex;
+    flex-wrap: wrap;
+    /* Stack on mobile */
+    gap: 20px;
+    justify-content: center;
+    align-items: flex-start;
+}
+
+.panel {
     background-color: var(--card-bg);
     padding: 2.5rem;
     border-radius: 16px;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
     border: 1px solid var(--border-color);
+    flex: 1;
+    min-width: 350px;
+}
+
+.left-panel {
+    max-width: 500px;
+}
+
+.right-panel {
+    flex: 1.5;
+    /* Wider history panel */
+    min-width: 400px;
+}
+
+/* History Table */
+.history-container {
+    overflow-x: auto;
+}
+
+#historyTable th {
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+#historyTable td {
+    padding: 12px 10px;
+    border-bottom: 1px solid #333;
+    font-size: 0.9rem;
+}
+
+#historyTable tr:last-child td {
+    border-bottom: none;
+}
+
+.history-link {
+    color: var(--primary-color);
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.history-link:hover {
+    text-decoration: underline;
 }
 
 header {
     margin-bottom: 2rem;
-    text-align: center;
 }
 
 header h1 {
@@ -68,6 +125,7 @@ label {
 
 input[type="text"],
 input[type="number"],
+input[type="password"],
 select {
     width: 100%;
     padding: 12px 16px;
@@ -78,7 +136,6 @@ select {
     font-size: 1rem;
     transition: all 0.3s ease;
     appearance: none;
-    /* Remove default arrow for custom styling if needed */
 }
 
 select {
@@ -125,13 +182,6 @@ button:disabled {
     transform: none;
 }
 
-footer {
-    margin-top: 2rem;
-    text-align: center;
-    font-size: 0.8rem;
-    color: var(--text-muted);
-}
-
 /* Loader */
 .loader {
     border: 3px solid rgba(0, 0, 0, 0.3);
@@ -166,7 +216,6 @@ div:where(.swal2-container) .swal2-title {
 
 .colored-toast.swal2-icon-success {
     background-color: #77DD77 !important;
-    /* Pastel Green */
     color: #fff !important;
     border: 1px solid #77DD77 !important;
 }
@@ -175,7 +224,6 @@ div:where(.swal2-container) .swal2-title {
 .colored-toast.swal2-icon-success .swal2-content,
 .colored-toast.swal2-icon-success .swal2-html-container {
     color: #333333 !important;
-    /* Darker text for better contrast on pastel */
 }
 
 /* Date Inputs */
@@ -188,7 +236,6 @@ input[type="date"] {
     color: var(--text-color);
     font-size: 1rem;
     color-scheme: dark;
-    /* Ensures calendar popup is dark in supported browsers */
 }
 
 /* Percentage Buttons Groups */
@@ -209,7 +256,6 @@ input[type="date"] {
     font-size: 0.9rem;
     transition: all 0.2s;
     display: inline-block;
-    /* Ensure it behaves like button */
     text-align: center;
 }
 

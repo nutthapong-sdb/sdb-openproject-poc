@@ -1,4 +1,17 @@
 document.addEventListener('DOMContentLoaded', async () => {
+    // Fetch User Info
+    try {
+        const userRes = await fetch('/api/user');
+        if (userRes.ok) {
+            const userData = await userRes.json();
+            const displayName = userData.firstName ? `${userData.firstName} ${userData.lastName}` : (userData.name || 'User');
+            // Try to use full name if available, else name
+            document.getElementById('userNameDisplay').textContent = displayName;
+        }
+    } catch (e) {
+        console.error('Failed to load user info', e);
+    }
+
     // Initialize Select2 with AJAX (Projects)
     $('#projectId').select2({
         width: '100%',
@@ -64,6 +77,20 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Load on start
     loadAssignees();
+
+    // Logout Logic
+    const logoutBtn = document.getElementById('logoutBtn');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', async () => {
+            try {
+                await fetch('/api/logout', { method: 'POST' });
+                window.location.href = '/login.html';
+            } catch (e) {
+                console.error('Logout failed', e);
+                window.location.href = '/login.html';
+            }
+        });
+    }
 
     // Manage Assignees Button Logic
     document.getElementById('manageAssigneesBtn').addEventListener('click', async () => {

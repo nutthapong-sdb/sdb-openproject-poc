@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - OpenProject Task Creator</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+</head>
+
+<body style="flex-direction: column; justify-content: center; align-items: center; min-height: 100vh; padding: 0;">
+    <div class="panel" style="max-width: 450px; text-align: center; width: 100%; flex: none; height: auto;">
+        <header>
+            <h1>Sign in</h1>
+            <p>OpenProject Helper for Softdebut</p>
+        </header>
+
+        <form id="loginForm" style="margin-top: 5px;">
+            <div class="form-group">
+                <label for="apikey" style="display:block; margin-bottom: 10px; color: #ccc;">OpenProject API Key</label>
+                <input type="password" id="apikey" class="form-control" placeholder="Paste API Key here..." required
+                    style="text-align: center; font-size: 1.1rem; padding: 15px; font-family: monospace; letter-spacing: 1px;">
+                <small style="display: block; margin-top: 10px; color: #666; font-size: 0.8rem;">
+                    Go to <b>My Account > Access Tokens</b> to generate one.
+                </small>
+            </div>
+
+            <button type="submit" id="loginBtn" style="margin-top: 20px;">
+                <span id="btnText">Connect</span>
+                <div id="btnLoader" class="loader"></div>
+            </button>
+        </form>
+    </div>
+
+    <script>
+        $(document).ready(function () {
+            // Check if already logged in
+            fetch('/api/user').then(res => {
+                if (res.ok) window.location.href = '/';
+            });
+
+            $('#loginForm').on('submit', async function (e) {
+                e.preventDefault();
+
+                const apikey = $('#apikey').val();
+                if (!apikey) {
+                    Swal.fire('Error', 'Please enter your API Key', 'error');
+                    return;
+                }
+
+                // UI Loading State
+                $('#loginBtn').prop('disabled', true);
+                $('#btnText').hide();
+                $('#btnLoader').show();
+
+                try {
+                    const res = await fetch('/api/login', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ apikey })
+                    });
+
+                    const data = await res.json();
+
+                    if (res.ok) {
+                        Swal.fire({
+                            title: 'Connected!',
+                            text: `Welcome, ${data.user.name}`,
+                            icon: 'success',
+                            timer: 1500,
+                            showConfirmButton: false
+                        }).then(() => {
+                            window.location.href = '/';
+                        });
+                    } else {
+                        Swal.fire('Login Failed', data.error || 'Unknown error', 'error');
+                    }
+                } catch (err) {
+                    console.error(err);
+                    Swal.fire('Error', 'Failed to connect to server.', 'error');
+                } finally {
+                    $('#loginBtn').prop('disabled', false);
+                    $('#btnText').show();
+                    $('#btnLoader').hide();
+                }
+            });
+        });
+    </script>
+</body>
+
+</html>

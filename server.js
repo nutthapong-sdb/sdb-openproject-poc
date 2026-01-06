@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
+const cookieParser = require('cookie-parser');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 
@@ -10,20 +11,37 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(bodyParser.json());
+app.use(cookieParser());
+
+// Intercept Login Page: Redirect if already logged in
+app.get(['/login.html', '/login'], (req, res, next) => {
+    // This relies on getSession being hoisted
+    const session = getSession(req);
+    if (session && session.isValid) {
+        return res.redirect('/');
+    }
+    next();
+});
+
+// Protect Home Page: Redirect to Login if NOT logged in
+app.get(['/', '/index.html'], (req, res, next) => {
+    const session = getSession(req);
+    if (!session || !session.isValid) {
+        return res.redirect('/login.html');
+    }
+    next();
+});
+
 app.use(express.static('public'));
 
-const HOST = process.env.OPENPROJECT_HOST;
-const API_KEY = process.env.OPENPROJECT_API_KEY;
+const HOST = 'https://openproject.softdebut.com';
+const SERVER_API_KEY = process.env.OPENPROJECT_API_KEY; // Optional server-side fallback
 
-if (!HOST || !API_KEY) {
-    console.error('Error: Please set OPENPROJECT_HOST and OPENPROJECT_API_KEY in .env file');
-    process.exit(1);
-}
-
-const authHash = Buffer.from(`apikey:${API_KEY}`).toString('base64');
+// Global Auth Hash (Legacy/Server Fallback)
+const authHash = SERVER_API_KEY ? Buffer.from(`apikey:${SERVER_API_KEY}`).toString('base64') : null;
 
 // Helper to execute fetch inside Puppeteer
-async function puppeteerFetch(url, options = {}) {
+async function puppeteerFetch(url, options = {}, specificApiKey = null) {
     const browser = await puppeteer.launch({
         headless: 'new',
         args: [
@@ -37,6 +55,10 @@ async function puppeteerFetch(url, options = {}) {
         ]
     });
 
+    // Determine correctness of key (Priority: Specific > Global)
+    const keyToUse = specificApiKey || SERVER_API_KEY;
+    const authString = keyToUse ? Buffer.from(`apikey:${keyToUse}`).toString('base64') : null;
+
     try {
         const page = await browser.newPage();
 
@@ -46,13 +68,16 @@ async function puppeteerFetch(url, options = {}) {
         // We visit the actual page to set cookies
         try {
             // Using networkidle0 to ensure most things are loaded
-            await page.goto(`${HOST}`, { waitUntil: 'load', timeout: 60000 });
+            await page.goto(`${HOST}`, { waitUntil: 'domcontentloaded', timeout: 15000 });
         } catch (e) {
             console.log('Main page load warning:', e.message);
         }
 
         const result = await page.evaluate(async (endpoint, fetchOptions, auth) => {
             try {
+                const controller = new AbortController();
+                const id = setTimeout(() => controller.abort(), 5000); // 5s timeout
+
                 const headers = {
                     'Authorization': `Basic ${auth}`,
                     'Content-Type': 'application/json',
@@ -61,8 +86,10 @@ async function puppeteerFetch(url, options = {}) {
 
                 const response = await fetch(endpoint, {
                     ...fetchOptions,
-                    headers: headers
+                    headers: headers,
+                    signal: controller.signal
                 });
+                clearTimeout(id);
 
                 const text = await response.text();
                 try {
@@ -80,7 +107,7 @@ async function puppeteerFetch(url, options = {}) {
             } catch (err) {
                 return { status: 500, error: err.toString() };
             }
-        }, url, options, authHash);
+        }, url, options, authString);
 
         return result;
 
@@ -197,6 +224,90 @@ app.get('/api/projects', (req, res) => {
         res.json(rows);
     });
 });
+
+// --- Auth Endpoints ---
+app.post('/api/login', async (req, res) => {
+    let { apikey } = req.body;
+
+    if (!apikey) {
+        return res.status(400).json({ error: 'API Key is required' });
+    }
+
+    apikey = apikey.trim();
+
+    console.log(`Verifying API Key against ${HOST} (handling Cloudflare)...`);
+
+    try {
+        // Use puppeteerFetch to verify (Bypasses Cloudflare)
+        const result = await puppeteerFetch(`${HOST}/api/v3/users/me`, {
+            method: 'GET'
+        }, apikey);
+
+        if (result.status >= 200 && result.status < 300) {
+            let user = result.data;
+            if (typeof user === 'string') {
+                try { user = JSON.parse(user); } catch (e) { }
+            }
+
+            console.log(`Login successful for: ${user.name}`);
+
+            // Set HTTP-Only Cookie
+            res.cookie('user_apikey', apikey, {
+                httpOnly: true,
+                secure: false, // Set to true if HTTPS is served
+                maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+            });
+            res.cookie('user_name', encodeURIComponent(user.name || user.firstName + ' ' + user.lastName || 'User'), {
+                httpOnly: true,
+                secure: false,
+                maxAge: 30 * 24 * 60 * 60 * 1000
+            });
+
+            res.json({
+                message: 'Login successful',
+                user: { id: user.id || 0, name: user.name || 'User' }
+            });
+        } else {
+            console.warn(`Login failed. Status: ${result.status}`);
+            res.status(401).json({
+                error: 'Login failed. Cloudflare or Invalid Key.',
+                details: typeof result.data === 'string' ? result.data.substring(0, 150) : JSON.stringify(result.data)
+            });
+        }
+
+    } catch (error) {
+        console.error('Login System Error:', error);
+        res.status(500).json({ error: 'Internal Server Error during login.' });
+    }
+});
+
+app.post('/api/logout', (req, res) => {
+    res.clearCookie('sdb_session');
+    res.clearCookie('user_apikey');
+    res.clearCookie('user_name');
+    res.json({ message: 'Logged out' });
+});
+
+app.get('/api/user', (req, res) => {
+    const session = getSession(req);
+    if (session && session.isValid) {
+        return res.json(session.user || { name: 'User' });
+    }
+    res.status(401).json({ error: 'Not logged in' });
+});
+
+function getSession(req) {
+    if (req.cookies.user_apikey) {
+        const userName = req.cookies.user_name ? decodeURIComponent(req.cookies.user_name) : 'API User';
+        return {
+            isValid: true,
+            type: 'apikey',
+            cookies: { apikey: req.cookies.user_apikey },
+            user: { name: userName }
+        };
+    }
+    return null;
+}
 
 // --- Local Assignees API ---
 
