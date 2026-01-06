@@ -141,6 +141,18 @@ db.serialize(() => {
     db.run("CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY, project_id TEXT UNIQUE, name TEXT, updated_at DATETIME)");
     db.run("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)");
     db.run("CREATE TABLE IF NOT EXISTS local_assignees (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, openproject_id TEXT)");
+    db.run(`CREATE TABLE IF NOT EXISTS task_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        openproject_id TEXT,
+        subject TEXT,
+        project_name TEXT,
+        start_date TEXT,
+        due_date TEXT,
+        spent_hours TEXT,
+        web_url TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
 });
 
 // Helper to save projects to DB (Upsert Logic)
@@ -248,6 +260,11 @@ app.post('/api/login', async (req, res) => {
                 secure: false, // Set to true if HTTPS is served
                 maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
             });
+            res.cookie('user_id', user.id || '0', {
+                httpOnly: true,
+                secure: false,
+                maxAge: 30 * 24 * 60 * 60 * 1000
+            });
             res.cookie('user_name', encodeURIComponent(user.name || user.firstName + ' ' + user.lastName || 'User'), {
                 httpOnly: true,
                 secure: false,
@@ -279,9 +296,28 @@ app.post('/api/logout', (req, res) => {
     res.json({ message: 'Logged out' });
 });
 
-app.get('/api/user', (req, res) => {
+app.get('/api/user', async (req, res) => {
     const session = getSession(req);
     if (session && session.isValid) {
+        // Migration: If user_id is missing but we have apikey
+        if (!req.cookies.user_id && req.cookies.user_apikey) {
+            try {
+                console.log("Missing user_id cookie, fetching from OpenProject...");
+                const result = await puppeteerFetch(`${HOST}/api/v3/users/me`, { method: 'GET' }, req.cookies.user_apikey);
+                if (result.status === 200 && result.data && result.data.id) {
+                    const userId = result.data.id.toString();
+                    res.cookie('user_id', userId, {
+                        httpOnly: true,
+                        secure: false,
+                        maxAge: 30 * 24 * 60 * 60 * 1000
+                    });
+                    session.user.id = userId;
+                    console.log(`Auto-fixed missing user_id: ${userId}`);
+                }
+            } catch (e) {
+                console.error("Failed to auto-fix user_id cookie", e);
+            }
+        }
         return res.json(session.user || { name: 'User' });
     }
     res.status(401).json({ error: 'Not logged in' });
@@ -290,11 +326,12 @@ app.get('/api/user', (req, res) => {
 function getSession(req) {
     if (req.cookies.user_apikey) {
         const userName = req.cookies.user_name ? decodeURIComponent(req.cookies.user_name) : 'API User';
+        const userId = req.cookies.user_id || null;
         return {
             isValid: true,
             type: 'apikey',
             cookies: { apikey: req.cookies.user_apikey },
-            user: { name: userName }
+            user: { id: userId, name: userName }
         };
     }
     return null;
@@ -432,6 +469,72 @@ app.delete('/api/assignees/:id', (req, res) => {
 // Return empty list for old dynamic endpoint (Frontend will be updated to use /api/assignees)
 app.get('/api/projects/:id/assignees', (req, res) => {
     res.json([]);
+});
+
+// --- Task History API ---
+// GET History for current user
+app.get('/api/history', (req, res) => {
+    const userId = req.cookies.user_id;
+    if (!userId) {
+        return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    db.all(
+        "SELECT * FROM task_history WHERE user_id = ? ORDER BY created_at DESC LIMIT 50",
+        [userId],
+        (err, rows) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            res.json(rows || []);
+        }
+    );
+});
+
+// POST Add to History
+app.post('/api/history', (req, res) => {
+    const userId = req.cookies.user_id;
+    if (!userId) {
+        return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { openprojectId, subject, projectName, startDate, dueDate, spentHours, webUrl } = req.body;
+
+    db.run(
+        `INSERT INTO task_history (user_id, openproject_id, subject, project_name, start_date, due_date, spent_hours, web_url)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [userId, openprojectId, subject, projectName, startDate, dueDate, spentHours, webUrl],
+        function (err) {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            res.json({ id: this.lastID, message: 'Added to history' });
+        }
+    );
+});
+
+// DELETE from History (local DB only)
+app.delete('/api/history/:id', (req, res) => {
+    const userId = req.cookies.user_id;
+    if (!userId) {
+        return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { id } = req.params;
+
+    db.run(
+        "DELETE FROM task_history WHERE id = ? AND user_id = ?",
+        [id, userId],
+        function (err) {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            if (this.changes === 0) {
+                return res.status(404).json({ error: 'History item not found' });
+            }
+            res.json({ message: 'Deleted from history' });
+        }
+    );
 });
 
 // API to create Work Package

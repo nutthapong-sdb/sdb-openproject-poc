@@ -1,11 +1,14 @@
 document.addEventListener('DOMContentLoaded', async () => {
+    // Global variable for current user ID (for history separation)
+    let currentUserId = null;
+
     // Fetch User Info
     try {
         const userRes = await fetch('/api/user');
         if (userRes.ok) {
             const userData = await userRes.json();
+            currentUserId = userData.id; // Store user ID
             const displayName = userData.firstName ? `${userData.firstName} ${userData.lastName}` : (userData.name || 'User');
-            // Try to use full name if available, else name
             document.getElementById('userNameDisplay').textContent = displayName;
         }
     } catch (e) {
@@ -102,57 +105,63 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     };
 
-    // --- History Logic (LocalStorage) ---
-    const loadHistory = () => {
+    // --- History Logic (SQLite via API) ---
+    const loadHistory = async () => {
         const historyBody = document.getElementById('historyBody');
-        const history = JSON.parse(localStorage.getItem('task_history') || '[]');
 
-        if (history.length === 0) {
-            historyBody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px; color: #777;">No recent tasks created.</td></tr>';
-            return;
-        }
+        try {
+            const response = await fetch('/api/history');
+            if (!response.ok) {
+                historyBody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px; color: #777;">Failed to load history.</td></tr>';
+                return;
+            }
 
-        historyBody.innerHTML = '';
-        // Show newest first (but keep original index for deletion)
-        const reversedHistory = [...history].reverse();
-        reversedHistory.forEach((item, revIndex) => {
-            const originalIndex = history.length - 1 - revIndex; // Get original index
-            const row = document.createElement('tr');
-            row.innerHTML = `
-                <td style="padding: 12px 10px; border-bottom: 1px solid #333; color: #aaa; font-size: 0.85rem;">${item.timestamp}</td>
-                <td style="padding: 12px 10px; border-bottom: 1px solid #333; font-weight: 500;">${item.subject}</td>
-                <td style="padding: 12px 10px; border-bottom: 1px solid #333; color: #aaa;">${item.projectName}</td>
-                <td style="padding: 12px 10px; border-bottom: 1px solid #333;">${item.startDate || '-'}</td>
-                <td style="padding: 12px 10px; border-bottom: 1px solid #333;">${item.dueDate || '-'}</td>
-                <td style="padding: 12px 10px; border-bottom: 1px solid #333; text-align: center;">${item.spentHours ? item.spentHours + ' h' : '-'}</td>
-                <td style="padding: 12px 10px; border-bottom: 1px solid #333; text-align: center;"><a href="${item.webUrl}" target="_blank" class="history-link" style="color: #FF8F00;">View</a></td>
-                <td style="padding: 12px 10px; border-bottom: 1px solid #333; text-align: center;">
-                    <button class="delete-history-btn" data-index="${originalIndex}" style="background: #c62828; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.8rem;">✕</button>
-                </td>
-            `;
-            historyBody.appendChild(row);
-        });
+            const history = await response.json();
 
-        // Attach delete handlers
-        document.querySelectorAll('.delete-history-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const index = parseInt(e.target.dataset.index);
-                deleteFromHistory(index);
+            if (history.length === 0) {
+                historyBody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px; color: #777;">No recent tasks created.</td></tr>';
+                return;
+            }
+
+            historyBody.innerHTML = '';
+            history.forEach(item => {
+                const createdAt = item.created_at ? new Date(item.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '-';
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td style="padding: 12px 10px; border-bottom: 1px solid #333; color: #aaa; font-size: 0.85rem;">${createdAt}</td>
+                    <td style="padding: 12px 10px; border-bottom: 1px solid #333; font-weight: 500;">${item.subject || '-'}</td>
+                    <td style="padding: 12px 10px; border-bottom: 1px solid #333; color: #aaa;">${item.project_name || '-'}</td>
+                    <td style="padding: 12px 10px; border-bottom: 1px solid #333;">${item.start_date || '-'}</td>
+                    <td style="padding: 12px 10px; border-bottom: 1px solid #333;">${item.due_date || '-'}</td>
+                    <td style="padding: 12px 10px; border-bottom: 1px solid #333; text-align: center;">${item.spent_hours ? item.spent_hours + ' h' : '-'}</td>
+                    <td style="padding: 12px 10px; border-bottom: 1px solid #333; text-align: center;"><a href="${item.web_url}" target="_blank" class="history-link" style="color: #FF8F00;">View</a></td>
+                    <td style="padding: 12px 10px; border-bottom: 1px solid #333; text-align: center;">
+                        <button class="delete-history-btn" data-id="${item.id}" data-op-id="${item.openproject_id}" data-subject="${item.subject}" style="background: #c62828; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.8rem;">✕</button>
+                    </td>
+                `;
+                historyBody.appendChild(row);
             });
-        });
+
+            // Attach delete handlers
+            document.querySelectorAll('.delete-history-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const historyId = e.target.dataset.id;
+                    const opId = e.target.dataset.opId;
+                    const subject = e.target.dataset.subject;
+                    deleteFromHistory(historyId, opId, subject);
+                });
+            });
+        } catch (error) {
+            console.error('Error loading history:', error);
+            historyBody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px; color: #c62828;">Error loading history.</td></tr>';
+        }
     };
 
-    const deleteFromHistory = async (index) => {
-        const history = JSON.parse(localStorage.getItem('task_history') || '[]');
-
-        if (index < 0 || index >= history.length) return;
-
-        const item = history[index];
-
+    const deleteFromHistory = async (historyId, openprojectId, subject) => {
         // Confirmation Dialog
         const result = await Swal.fire({
             title: 'Delete Task?',
-            html: `<p>Are you sure you want to delete:</p><p><strong>${item.subject}</strong></p><p style="color: #c62828;">This will also delete it from OpenProject!</p>`,
+            html: `<p>Are you sure you want to delete:</p><p><strong>${subject}</strong></p><p style="color: #c62828;">This will also delete it from OpenProject!</p>`,
             icon: 'warning',
             showCancelButton: true,
             confirmButtonColor: '#c62828',
@@ -171,31 +180,31 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
 
         try {
-            // Call API to delete from OpenProject
-            const response = await fetch(`/api/work_packages/${item.id}`, {
+            // Delete from OpenProject
+            const opResponse = await fetch(`/api/work_packages/${openprojectId}`, {
                 method: 'DELETE'
             });
 
-            const data = await response.json();
+            // Delete from local history DB (regardless of OpenProject result)
+            await fetch(`/api/history/${historyId}`, {
+                method: 'DELETE'
+            });
 
-            if (response.ok) {
-                // Remove from LocalStorage
-                history.splice(index, 1);
-                localStorage.setItem('task_history', JSON.stringify(history));
-                loadHistory();
+            loadHistory();
 
+            if (opResponse.ok) {
                 Swal.fire({
                     icon: 'success',
                     title: 'Deleted!',
-                    text: data.message || 'Task deleted successfully.',
+                    text: 'Task deleted successfully.',
                     timer: 2000,
                     showConfirmButton: false
                 });
             } else {
                 Swal.fire({
-                    icon: 'error',
-                    title: 'Delete Failed',
-                    text: data.error || 'Could not delete the task from OpenProject.'
+                    icon: 'warning',
+                    title: 'Partially Deleted',
+                    text: 'Removed from history, but could not delete from OpenProject.'
                 });
             }
         } catch (error) {
@@ -208,32 +217,28 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     };
 
-    const addToHistory = (task) => {
-        const history = JSON.parse(localStorage.getItem('task_history') || '[]');
-        const now = new Date();
-        const timeString = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-
-        history.push({
-            timestamp: timeString,
-            subject: task.subject,
-            projectName: task.projectName,
-            startDate: task.startDate,
-            dueDate: task.dueDate,
-            spentHours: task.spentHours,
-            webUrl: task.webUrl,
-            id: task.id
-        });
-
-        // Keep last 50
-        if (history.length > 50) history.shift();
-
-        localStorage.setItem('task_history', JSON.stringify(history));
-        loadHistory();
+    const addToHistory = async (task) => {
+        try {
+            await fetch('/api/history', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    openprojectId: task.id,
+                    subject: task.subject,
+                    projectName: task.projectName,
+                    startDate: task.startDate,
+                    dueDate: task.dueDate,
+                    spentHours: task.spentHours,
+                    webUrl: task.webUrl
+                })
+            });
+            loadHistory();
+        } catch (error) {
+            console.error('Error adding to history:', error);
+        }
     };
 
-    // Refresh Button
-    const refreshHistoryBtn = document.getElementById('refreshHistoryBtn');
-    if (refreshHistoryBtn) refreshHistoryBtn.addEventListener('click', loadHistory);
+
 
     // Load on start
     loadAssignees();
@@ -618,7 +623,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 });
 
                 // Update History
-                addToHistory({
+                await addToHistory({
                     subject: subject,
                     projectName: $('#projectId').find(':selected').text() || 'Unknown Project',
                     webUrl: result.webUrl,
