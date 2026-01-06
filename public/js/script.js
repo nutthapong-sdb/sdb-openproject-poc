@@ -12,6 +12,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.error('Failed to load user info', e);
     }
 
+    // Set Default Dates to Today
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('startDate').value = today;
+    document.getElementById('dueDate').value = today;
+
     // Initialize Select2 with AJAX (Projects)
     $('#projectId').select2({
         width: '100%',
@@ -68,7 +73,22 @@ document.addEventListener('DOMContentLoaded', async () => {
                 assigneeSelect.append(option);
             });
 
-            if (currentVal) assigneeSelect.val(currentVal).trigger('change');
+            if (currentVal) {
+                assigneeSelect.val(currentVal).trigger('change');
+            } else {
+                // Auto-select Current User
+                try {
+                    const meRes = await fetch('/api/user');
+                    if (meRes.ok) {
+                        const me = await meRes.json();
+                        const myName = me.name || (me.firstName + ' ' + me.lastName);
+                        const match = users.find(u => u.name === myName);
+                        if (match) {
+                            assigneeSelect.val(match.id).trigger('change');
+                        }
+                    }
+                } catch (e) { console.warn('Auto-select user failed', e); }
+            }
 
         } catch (error) {
             console.error('Error loading local assignees:', error);
@@ -356,13 +376,41 @@ document.addEventListener('DOMContentLoaded', async () => {
                 })
             });
 
-            if (!createRes.ok) return null;
+            if (!createRes.ok) {
+                console.error('Auto-assign failed status:', createRes.status);
+                return null;
+            }
 
-            const newAssignee = await createRes.json();
+            const resText = await createRes.text();
+            if (!resText) {
+                console.error('Auto-assign server returned empty response');
+                return null;
+            }
+
+            let newAssignee;
+            try {
+                newAssignee = JSON.parse(resText);
+            } catch (jsonErr) {
+                console.error('Failed to parse auto-assign response:', resText);
+                return null;
+            }
+
+            console.log('Auto-Assigned User:', newAssignee);
 
             // Add to dropdown
             const newOption = new Option(newAssignee.name, newAssignee.id, true, true);
             $('#assigneeId').append(newOption).trigger('change');
+
+            // Notify User
+            Swal.fire({
+                icon: 'info',
+                title: 'Auto-Assigned',
+                text: `You have been assigned as: ${newAssignee.name}`,
+                timer: 2000,
+                showConfirmButton: false,
+                toast: true,
+                position: 'top-end'
+            });
 
             return newAssignee.id;
 
@@ -404,11 +452,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             dueDate = startDate;
         }
 
-        if (!projectId || !subject || !assigneeId) {
+        if (!projectId || !subject) {
             Swal.fire({
                 icon: 'warning',
                 title: 'Missing Info',
-                text: 'Please select Project, Assignee, and enter Task Name.',
+                text: 'Please select a project and enter a task name.',
                 confirmButtonColor: '#FF8F00'
             });
             return;
@@ -436,7 +484,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                 })
             });
 
-            const result = await response.json();
+            // Safe JSON Parsing
+            const resText = await response.text();
+            let result;
+            try {
+                result = resText ? JSON.parse(resText) : {};
+            } catch (parseErr) {
+                console.error('Failed to parse response:', resText);
+                throw new Error('Server returned invalid response. Check logs.');
+            }
 
             if (response.ok) {
                 // Toast Notification

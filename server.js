@@ -35,10 +35,7 @@ app.get(['/', '/index.html'], (req, res, next) => {
 app.use(express.static('public'));
 
 const HOST = 'https://openproject.softdebut.com';
-const SERVER_API_KEY = process.env.OPENPROJECT_API_KEY; // Optional server-side fallback
-
-// Global Auth Hash (Legacy/Server Fallback)
-const authHash = SERVER_API_KEY ? Buffer.from(`apikey:${SERVER_API_KEY}`).toString('base64') : null;
+// Note: All API authentication now uses user's API key from login cookie
 
 // Helper to execute fetch inside Puppeteer
 async function puppeteerFetch(url, options = {}, specificApiKey = null) {
@@ -56,27 +53,39 @@ async function puppeteerFetch(url, options = {}, specificApiKey = null) {
     });
 
     // Determine correctness of key (Priority: Specific > Global)
-    const keyToUse = specificApiKey || SERVER_API_KEY;
+    const keyToUse = specificApiKey; // Only use specific API key (from user's cookie)
     const authString = keyToUse ? Buffer.from(`apikey:${keyToUse}`).toString('base64') : null;
 
     try {
         const page = await browser.newPage();
+        console.log('[puppeteerFetch] Browser launched, new page created');
 
         // Optimize viewport
         await page.setViewport({ width: 1920, height: 1080 });
 
-        // We visit the actual page to set cookies
-        try {
-            // Using networkidle0 to ensure most things are loaded
-            await page.goto(`${HOST}`, { waitUntil: 'domcontentloaded', timeout: 15000 });
-        } catch (e) {
-            console.log('Main page load warning:', e.message);
+        // Handle HTTP Basic Auth popup
+        if (keyToUse) {
+            await page.authenticate({
+                username: 'apikey',
+                password: keyToUse
+            });
+            console.log('[puppeteerFetch] Authentication set');
         }
 
+        // We visit the actual page to set cookies
+        try {
+            console.log('[puppeteerFetch] Navigating to HOST...');
+            await page.goto(`${HOST}`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+            console.log('[puppeteerFetch] Navigation complete');
+        } catch (e) {
+            console.log('[puppeteerFetch] Main page load warning:', e.message);
+        }
+
+        console.log('[puppeteerFetch] Starting page.evaluate for:', url);
         const result = await page.evaluate(async (endpoint, fetchOptions, auth) => {
             try {
                 const controller = new AbortController();
-                const id = setTimeout(() => controller.abort(), 5000); // 5s timeout
+                const id = setTimeout(() => controller.abort(), 60000); // 60s timeout
 
                 const headers = {
                     'Authorization': `Basic ${auth}`,
@@ -109,6 +118,7 @@ async function puppeteerFetch(url, options = {}, specificApiKey = null) {
             }
         }, url, options, authString);
 
+        console.log('[puppeteerFetch] Result status:', result.status, 'error:', result.error || 'none');
         return result;
 
     } catch (error) {
@@ -164,28 +174,9 @@ function saveProjectsToDB(projects) {
 
 // Function to fetch from Puppeteer and Update DB
 async function updateProjectsCache() {
-    console.log('Starting scheduled project update...');
-    try {
-        const url = `${HOST}/api/v3/projects`;
-        const result = await puppeteerFetch(url, { method: 'GET' });
-
-        if (result.status >= 200 && result.status < 300) {
-            let projects = [];
-            if (Array.isArray(result.data)) {
-                projects = result.data;
-            } else if (result.data._embedded && result.data._embedded.elements) {
-                projects = result.data._embedded.elements;
-            }
-
-            if (projects.length > 0) {
-                saveProjectsToDB(projects);
-            }
-        } else {
-            console.error('Failed to fetch projects for cache update:', result.status);
-        }
-    } catch (error) {
-        console.error('Error during cache update:', error.message);
-    }
+    // Project cache update disabled - requires user session
+    console.log('Skipping project cache update (requires user session)');
+    return;
 }
 
 // Schedule Update: Every 6 hours (6 * 60 * 60 * 1000 ms)
@@ -376,7 +367,8 @@ app.post('/api/assignees', async (req, res) => {
     db.get("SELECT * FROM local_assignees WHERE openproject_id = ?", [finalOpId], (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
         if (row) {
-            return res.status(409).json({ error: `Duplicate: '${row.name}' already uses ID ${finalOpId}.` });
+            // Found existing, return it (Find or Create logic)
+            return res.json(row);
         }
 
         db.run("INSERT INTO local_assignees (name, openproject_id) VALUES (?, ?)", [name, finalOpId], function (err) {
@@ -445,7 +437,11 @@ app.get('/api/projects/:id/assignees', (req, res) => {
 // API to create Work Package
 app.post('/api/work_packages', async (req, res) => {
     const { projectId, subject, assigneeId, startDate, dueDate, percentageDone, spentHours } = req.body;
-    // Note: assigneeId here is the LOCAL database ID now, not the OpenProject ID directly.
+    const userApiKey = req.cookies.user_apikey; // Get user's API key from login session
+
+    if (!userApiKey) {
+        return res.status(401).json({ error: 'Not authenticated. Please login.' });
+    }
 
     if (!projectId || !subject) {
         return res.status(400).json({ error: 'Missing projectId or subject' });
@@ -495,7 +491,7 @@ app.post('/api/work_packages', async (req, res) => {
         const result = await puppeteerFetch(url, {
             method: 'POST',
             body: JSON.stringify(payload)
-        });
+        }, userApiKey);
 
         if (result.status >= 200 && result.status < 300) {
             const newWorkPackageId = result.data.id;
@@ -528,7 +524,7 @@ app.post('/api/work_packages', async (req, res) => {
                 const timeResult = await puppeteerFetch(timeUrl, {
                     method: 'POST',
                     body: JSON.stringify(timePayload)
-                });
+                }, userApiKey);
 
                 if (timeResult.status >= 200 && timeResult.status < 300) {
                     timeLogged = true;
@@ -552,6 +548,43 @@ app.post('/api/work_packages', async (req, res) => {
         }
     } catch (error) {
         res.status(500).json({ error: error.message });
+    }
+});
+
+// Sync Users Endpoint
+app.get('/api/sync-users', async (req, res) => {
+    const userApiKey = req.cookies.user_apikey;
+    if (!userApiKey) {
+        return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    try {
+        console.log('Syncing users...');
+        const projects = ['614', '615']; // Production & MA
+        let total = 0;
+
+        for (const pid of projects) {
+            const result = await puppeteerFetch(`${HOST}/api/v3/projects/${pid}/memberships`, { method: 'GET' }, userApiKey);
+            if (result.status === 200 && result.data && result.data._embedded) {
+                const users = result.data._embedded.elements;
+
+                users.forEach(user => {
+                    if (user._type === 'User') {
+                        db.get("SELECT id FROM local_assignees WHERE openproject_id = ?", [user.id], (err, row) => {
+                            if (!row) {
+                                db.run("INSERT INTO local_assignees (name, openproject_id) VALUES (?, ?)", [user.name, user.id]);
+                            }
+                        });
+                        total++;
+                    }
+                });
+            }
+        }
+        res.json({ message: `Sync triggered.` });
+
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: e.message });
     }
 });
 
