@@ -1,0 +1,10 @@
+node_modules
+npm-debug.log
+projects.db
+projects.db-journal
+.env
+.git
+.gitignore
+.agent
+.gemini
+*.log
