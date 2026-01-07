@@ -266,7 +266,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Sync Users Logic
     const syncUsersBtn = document.getElementById('syncUsersBtn');
     if (syncUsersBtn) {
-        syncUsersBtn.addEventListener('click', async () => {
+        syncUsersBtn.addEventListener('click', async (e) => {
+            console.log('Sync Users Clicked'); // Debug
+            // Don't close immediately if needed, but usually clicking button implies action done
+            // e.stopPropagation(); 
+
             const originalText = syncUsersBtn.innerText;
             syncUsersBtn.innerText = 'Syncing...';
             syncUsersBtn.disabled = true;
@@ -299,6 +303,49 @@ document.addEventListener('DOMContentLoaded', async () => {
                 syncUsersBtn.innerText = originalText;
                 syncUsersBtn.disabled = false;
                 syncUsersBtn.style.cursor = 'pointer';
+            }
+        });
+    }
+
+    // Sync Projects Logic
+    const syncProjectsBtn = document.getElementById('syncProjectsBtn');
+    if (syncProjectsBtn) {
+        syncProjectsBtn.addEventListener('click', async (e) => {
+            console.log('Sync Projects Clicked'); // Debug
+            const originalText = syncProjectsBtn.innerText;
+            syncProjectsBtn.innerText = 'Syncing...';
+            syncProjectsBtn.disabled = true;
+            syncProjectsBtn.style.cursor = 'wait';
+
+            try {
+                const response = await fetch('/api/sync-projects', { method: 'POST' });
+                const result = await response.json();
+
+                if (response.ok) {
+                    await Swal.fire({
+                        icon: 'success',
+                        title: 'Sync Complete',
+                        text: `Synchronized ${result.count} projects successfully.`,
+                        showConfirmButton: true,
+                        confirmButtonText: 'Great, thanks!'
+                    });
+
+                    // Reload after user closes the popup
+                    location.reload();
+                } else {
+                    throw new Error(result.error);
+                }
+            } catch (error) {
+                console.error('Sync failed:', error);
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Sync Failed',
+                    text: error.message || 'Could not sync projects.'
+                });
+            } finally {
+                syncProjectsBtn.innerText = originalText;
+                syncProjectsBtn.disabled = false;
+                syncProjectsBtn.style.cursor = 'pointer';
             }
         });
     }

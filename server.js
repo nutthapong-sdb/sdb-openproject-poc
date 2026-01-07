@@ -155,6 +155,7 @@ db.serialize(() => {
         web_url TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
+    db.run("CREATE TABLE IF NOT EXISTS user_project_mapping (user_id TEXT, project_id TEXT, PRIMARY KEY(user_id, project_id))");
 });
 
 // Helper to save projects to DB (Upsert Logic)
@@ -186,32 +187,57 @@ function saveProjectsToDB(projects) {
     console.log(`Synced ${projects.length} projects with database at ${new Date().toISOString()}`);
 }
 
-// Function to fetch from Puppeteer and Update DB
-async function updateProjectsCache() {
-    // Project cache update disabled - requires user session
-    console.log('Skipping project cache update (requires user session)');
-    return;
+// Helper to Sync User Projects
+// Helper to Sync All Projects (Global)
+async function syncAllProjects(apiKey) {
+    if (!apiKey) return;
+
+    console.log(`Syncing ALL projects...`);
+    try {
+        // Fetch projects visible to this user API Key
+        const result = await puppeteerFetch(`${HOST}/api/v3/projects?pageSize=500`, { method: 'GET' }, apiKey);
+
+        if (result.status === 200 && result.data && result.data._embedded && result.data._embedded.elements) {
+            const projects = result.data._embedded.elements;
+            console.log(`Found ${projects.length} projects.`);
+
+            db.serialize(() => {
+                db.run("BEGIN TRANSACTION");
+
+                // Update Global Project Cache
+                const upsertStmt = db.prepare(`
+                    INSERT INTO projects (project_id, name, updated_at) 
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(project_id) DO UPDATE SET
+                    name = excluded.name,
+                    updated_at = excluded.updated_at
+                `);
+
+                const now = new Date().toISOString();
+                projects.forEach(p => {
+                    upsertStmt.run(p.id.toString(), p.name, now);
+                });
+
+                upsertStmt.finalize();
+                db.run("COMMIT");
+            });
+
+            return projects.length; // Return count
+        }
+        return 0;
+    } catch (e) {
+        console.error("Failed to sync projects:", e.message);
+        throw e; // Throw to let endpoint handle error
+    }
 }
 
-// Schedule Update: Every 6 hours (6 * 60 * 60 * 1000 ms)
-const UPDATE_INTERVAL = 6 * 60 * 60 * 1000;
-setInterval(updateProjectsCache, UPDATE_INTERVAL);
 
-// Initial check
-db.get("SELECT value FROM meta WHERE key = 'last_sync'", (err, row) => {
-    if (err || !row) {
-        console.log('No local cache found. Fetching initial data...');
-        updateProjectsCache();
-    } else {
-        console.log(`Database loaded. Last sync: ${new Date(row.value).toLocaleString()}`);
-        updateProjectsCache();
-    }
-});
-
-// GET Projects: Read from DB
+// GET Projects: Read from DB (Filtered by User)
+// GET Projects: Read ALL from DB
 app.get('/api/projects', (req, res) => {
     const search = req.query.q || '';
-    let query = "SELECT project_id as id, name FROM projects";
+
+    let query = `SELECT project_id as id, name FROM projects`;
     let params = [];
 
     if (search) {
@@ -272,6 +298,11 @@ app.post('/api/login', async (req, res) => {
                 secure: false,
                 maxAge: 30 * 24 * 60 * 60 * 1000
             });
+
+            console.log(`Login successful for ${user.name} (ID: ${user.id})`);
+
+            // Sync Projects (All accessible)
+            await syncAllProjects(apikey);
 
             res.json({
                 message: 'Login successful',
@@ -747,6 +778,24 @@ app.post('/api/sync-users', async (req, res) => {
         res.json({ message: `Sync completed. Found ${allUsers.size} users. Added ${addedCount} new users.` });
 
 
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Sync Projects Endpoint (Manual Trigger)
+app.post('/api/sync-projects', async (req, res) => {
+    const userApiKey = req.cookies.user_apikey;
+    const userId = req.cookies.user_id;
+
+    if (!userApiKey || !userId) {
+        return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    try {
+        const count = await syncAllProjects(userApiKey);
+        res.json({ message: 'Project synchronization started.', count: count || 0 });
     } catch (e) {
         console.error(e);
         res.status(500).json({ error: e.message });
