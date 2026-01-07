@@ -31,7 +31,7 @@ COPY . .
 RUN touch projects.db && chmod 666 projects.db
 
 # Expose port 3000
-EXPOSE 3000
+EXPOSE 3001
 
 # Tell Puppeteer to use the installed Chromium
 # The path is usually /usr/bin/chromium in Debian

@@ -5,7 +5,7 @@ services:
     build: .
     container_name: openproject-poc-app
     ports:
-      - "3000:3000"
+      - "3001:3001"
     volumes:
       - ./projects.db:/app/projects.db
     # Environment variables can be added here if needed in the future

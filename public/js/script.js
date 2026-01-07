@@ -245,6 +245,64 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadAssignees();
     loadHistory();
 
+    // Settings Dropdown Logic
+    const settingsBtn = document.getElementById('settingsBtn');
+    const settingsDropdown = document.getElementById('settingsDropdown');
+
+    if (settingsBtn && settingsDropdown) {
+        settingsBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            settingsDropdown.style.display = settingsDropdown.style.display === 'block' ? 'none' : 'block';
+        });
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!settingsBtn.contains(e.target) && !settingsDropdown.contains(e.target)) {
+                settingsDropdown.style.display = 'none';
+            }
+        });
+    }
+
+    // Sync Users Logic
+    const syncUsersBtn = document.getElementById('syncUsersBtn');
+    if (syncUsersBtn) {
+        syncUsersBtn.addEventListener('click', async () => {
+            const originalText = syncUsersBtn.innerText;
+            syncUsersBtn.innerText = 'Syncing...';
+            syncUsersBtn.disabled = true;
+            syncUsersBtn.style.cursor = 'wait';
+
+            try {
+                const response = await fetch('/api/sync-users', { method: 'POST' });
+                const result = await response.json();
+
+                if (response.ok) {
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Sync Complete',
+                        text: result.message || 'User list synchronized successfully.',
+                        timer: 2000,
+                        showConfirmButton: false
+                    });
+                    loadAssignees(); // Reload dropdown
+                } else {
+                    throw new Error(result.error);
+                }
+            } catch (error) {
+                console.error('Sync failed:', error);
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Sync Failed',
+                    text: error.message || 'Could not sync users.'
+                });
+            } finally {
+                syncUsersBtn.innerText = originalText;
+                syncUsersBtn.disabled = false;
+                syncUsersBtn.style.cursor = 'pointer';
+            }
+        });
+    }
+
     // Logout Logic
     const logoutBtn = document.getElementById('logoutBtn');
     if (logoutBtn) {

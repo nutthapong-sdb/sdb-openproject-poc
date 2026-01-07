@@ -8,7 +8,7 @@ const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 
 app.use(bodyParser.json());
 app.use(cookieParser());
@@ -38,7 +38,7 @@ const HOST = 'https://openproject.softdebut.com';
 // Note: All API authentication now uses user's API key from login cookie
 
 // Helper to execute fetch inside Puppeteer
-async function puppeteerFetch(url, options = {}, specificApiKey = null) {
+async function puppeteerFetch(url, options = {}, specificApiKey = null, timeoutMs = 60000) {
     const browser = await puppeteer.launch({
         headless: 'new',
         args: [
@@ -55,9 +55,10 @@ async function puppeteerFetch(url, options = {}, specificApiKey = null) {
     // Determine correctness of key (Priority: Specific > Global)
     const keyToUse = specificApiKey; // Only use specific API key (from user's cookie)
     const authString = keyToUse ? Buffer.from(`apikey:${keyToUse}`).toString('base64') : null;
+    let page;
 
     try {
-        const page = await browser.newPage();
+        page = await browser.newPage();
         console.log('[puppeteerFetch] Browser launched, new page created');
 
         // Optimize viewport
@@ -75,17 +76,18 @@ async function puppeteerFetch(url, options = {}, specificApiKey = null) {
         // We visit the actual page to set cookies
         try {
             console.log('[puppeteerFetch] Navigating to HOST...');
-            await page.goto(`${HOST}`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+            // Reduced navigation timeout to 5s to speed up
+            await page.goto(`${HOST}`, { waitUntil: 'domcontentloaded', timeout: 5000 });
             console.log('[puppeteerFetch] Navigation complete');
         } catch (e) {
             console.log('[puppeteerFetch] Main page load warning:', e.message);
         }
 
         console.log('[puppeteerFetch] Starting page.evaluate for:', url);
-        const result = await page.evaluate(async (endpoint, fetchOptions, auth) => {
+        const result = await page.evaluate(async (endpoint, fetchOptions, auth, timeoutMs) => {
             try {
                 const controller = new AbortController();
-                const id = setTimeout(() => controller.abort(), 60000); // 60s timeout
+                const id = setTimeout(() => controller.abort(), timeoutMs); // Custom timeout
 
                 const headers = {
                     'Authorization': `Basic ${auth}`,
@@ -116,7 +118,7 @@ async function puppeteerFetch(url, options = {}, specificApiKey = null) {
             } catch (err) {
                 return { status: 500, error: err.toString() };
             }
-        }, url, options, authString);
+        }, url, options, authString, timeoutMs);
 
         console.log('[puppeteerFetch] Result status:', result.status, 'error:', result.error || 'none');
         return result;
@@ -352,7 +354,7 @@ async function findUserInProject(name, projectId) {
     try {
         console.log(`Searching for '${name}' in Project ${projectId}...`);
         const url = `${HOST}/api/v3/projects/${projectId}/available_assignees`;
-        const result = await puppeteerFetch(url, { method: 'GET' });
+        const result = await puppeteerFetch(url, { method: 'GET' }, null, 3000); // 3s Timeout
 
         if (result.status >= 200 && result.status < 300 && result.data._embedded && result.data._embedded.elements) {
             const user = result.data._embedded.elements.find(el => el._type === 'User' && el.name.toLowerCase().includes(name.toLowerCase()));
@@ -693,7 +695,7 @@ app.delete('/api/work_packages/:id', async (req, res) => {
 });
 
 // Sync Users Endpoint
-app.get('/api/sync-users', async (req, res) => {
+app.post('/api/sync-users', async (req, res) => {
     const userApiKey = req.cookies.user_apikey;
     if (!userApiKey) {
         return res.status(401).json({ error: 'Not authenticated' });
@@ -702,26 +704,48 @@ app.get('/api/sync-users', async (req, res) => {
     try {
         console.log('Syncing users...');
         const projects = ['614', '615']; // Production & MA
-        let total = 0;
+        const allUsers = new Map();
 
+        // 1. Fetch from OpenProject
         for (const pid of projects) {
-            const result = await puppeteerFetch(`${HOST}/api/v3/projects/${pid}/memberships`, { method: 'GET' }, userApiKey);
-            if (result.status === 200 && result.data && result.data._embedded) {
-                const users = result.data._embedded.elements;
+            console.log(`Scanning Project ${pid}...`);
+            const url = `${HOST}/api/v3/projects/${pid}/available_assignees`;
+            const result = await puppeteerFetch(url, { method: 'GET' }, userApiKey, 20000); // 20s timeout
 
-                users.forEach(user => {
-                    if (user._type === 'User') {
-                        db.get("SELECT id FROM local_assignees WHERE openproject_id = ?", [user.id], (err, row) => {
-                            if (!row) {
-                                db.run("INSERT INTO local_assignees (name, openproject_id) VALUES (?, ?)", [user.name, user.id]);
-                            }
-                        });
-                        total++;
+            if (result.status === 200 && result.data && result.data._embedded && result.data._embedded.elements) {
+                const elements = result.data._embedded.elements;
+                elements.forEach(el => {
+                    if (el._type === 'User') {
+                        allUsers.set(el.id.toString(), el.name);
                     }
                 });
+            } else {
+                console.error(`Failed to fetch project ${pid}: ${result.status}`);
             }
         }
-        res.json({ message: `Sync triggered.` });
+
+        console.log(`Found ${allUsers.size} unique users.`);
+
+        // 2. Insert into DB properly
+        let addedCount = 0;
+
+        for (const [id, name] of allUsers) {
+            await new Promise((resolve) => {
+                db.get("SELECT id FROM local_assignees WHERE openproject_id = ?", [id], (err, row) => {
+                    if (!row) {
+                        db.run("INSERT INTO local_assignees (name, openproject_id) VALUES (?, ?)", [name, id], (err) => {
+                            if (!err) addedCount++;
+                            resolve();
+                        });
+                    } else {
+                        resolve();
+                    }
+                });
+            });
+        }
+
+        res.json({ message: `Sync completed. Found ${allUsers.size} users. Added ${addedCount} new users.` });
+
 
     } catch (e) {
         console.error(e);
