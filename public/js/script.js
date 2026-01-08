@@ -9,7 +9,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             const userData = await userRes.json();
             currentUserId = userData.id; // Store user ID
             const displayName = userData.firstName ? `${userData.firstName} ${userData.lastName}` : (userData.name || 'User');
-            document.getElementById('userNameDisplay').textContent = displayName;
+            // Show OpenProject ID in header
+            document.getElementById('userNameDisplay').textContent = `${displayName} (${userData.id})`;
 
             // Show Settings (with Admin Panel inside) only for admin role
             if (userData.role === 'admin') {
@@ -79,9 +80,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             assigneeSelect.empty().append('<option value="" disabled selected>Select an Assignee</option>');
 
             users.forEach(user => {
-                // Use openproject_id as value if available, otherwise fallback to local id (though OP ID is preferred)
-                const val = user.openproject_id || user.id;
-                const option = new Option(user.name, val, false, false);
+                // Format: "ID - Name"
+                const text = user.openproject_id ? `${user.openproject_id} - ${user.name}` : user.name;
+                const option = new Option(text, user.id, false, false);
                 assigneeSelect.append(option);
             });
 
@@ -93,25 +94,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                     const meRes = await fetch('/api/user');
                     if (meRes.ok) {
                         const me = await meRes.json();
-                        // me.id is the OpenProject ID (from session/login)
-                        // Try to find matching option by ID first
-                        let matchId = null;
+                        const myName = me.name || (me.firstName + ' ' + me.lastName);
 
-                        // Check if we have exact ID match
-                        const matchById = users.find(u => u.openproject_id == me.id);
-                        if (matchById) {
-                            matchId = matchById.openproject_id;
-                        } else {
-                            // Fallback to name match
-                            const myName = me.name || (me.firstName + ' ' + me.lastName);
-                            const matchByName = users.find(u => u.name === myName);
-                            if (matchByName) {
-                                matchId = matchByName.openproject_id || matchByName.id;
-                            }
-                        }
+                        // Fix: Try to match by OpenProject ID first, then by Name
+                        const match = users.find(u => (u.openproject_id && u.openproject_id == me.id) || u.name === myName);
 
-                        if (matchId) {
-                            assigneeSelect.val(matchId).trigger('change');
+                        if (match) {
+                            assigneeSelect.val(match.id).trigger('change');
                         }
                     }
                 } catch (e) { console.warn('Auto-select user failed', e); }
@@ -477,24 +466,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (syncProjectsBtn) {
         syncProjectsBtn.addEventListener('click', async (e) => {
             console.log('Sync Projects Clicked'); // Debug
-
-            // Show confirmation dialog
-            const result = await Swal.fire({
-                title: 'Sync Projects?',
-                html: '<p>This will synchronize all projects from OpenProject.</p><p style="color: #ff9800; font-weight: 600; margin-top: 10px;">⏱️ Sync time is about 2-3 minutes</p>',
-                icon: 'warning',
-                showCancelButton: true,
-                confirmButtonColor: '#4CAF50',
-                cancelButtonColor: '#666',
-                confirmButtonText: 'Yes, Sync Now',
-                cancelButtonText: 'Cancel'
-            });
-
-            // If user cancels, stop here
-            if (!result.isConfirmed) {
-                return;
-            }
-
             const originalText = syncProjectsBtn.innerText;
             syncProjectsBtn.innerText = 'Syncing...';
             syncProjectsBtn.disabled = true;
