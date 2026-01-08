@@ -1,10 +1,12 @@
 node_modules
 npm-debug.log
-projects.db
-projects.db-journal
-.env
 .git
 .gitignore
-.agent
-.gemini
+README.md
+.env
+.env.local
+.DS_Store
+database.db
 *.log
+.vscode
+.idea

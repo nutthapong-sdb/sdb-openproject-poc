@@ -460,6 +460,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (syncProjectsBtn) {
         syncProjectsBtn.addEventListener('click', async (e) => {
             console.log('Sync Projects Clicked'); // Debug
+
+            // Show confirmation dialog
+            const result = await Swal.fire({
+                title: 'Sync Projects?',
+                html: '<p>This will synchronize all projects from OpenProject.</p><p style="color: #ff9800; font-weight: 600; margin-top: 10px;">⏱️ Sync time is about 2-3 minutes</p>',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#4CAF50',
+                cancelButtonColor: '#666',
+                confirmButtonText: 'Yes, Sync Now',
+                cancelButtonText: 'Cancel'
+            });
+
+            // If user cancels, stop here
+            if (!result.isConfirmed) {
+                return;
+            }
+
             const originalText = syncProjectsBtn.innerText;
             syncProjectsBtn.innerText = 'Syncing...';
             syncProjectsBtn.disabled = true;

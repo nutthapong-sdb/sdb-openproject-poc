@@ -16,27 +16,39 @@ RUN apt-get update && apt-get install -y \
 # Set working directory
 WORKDIR /app
 
-# Copy package files
+# Copy package files first (for better layer caching)
 COPY package*.json ./
 
 # Install npm dependencies
-# Set PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true because we use the system chromium
+# Use npm ci for reproducible builds and --only=production for smaller image
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-RUN npm install
+RUN npm ci --only=production
 
 # Copy application source
 COPY . .
 
-# Ensure the database file exists and is writable
-RUN touch projects.db && chmod 666 projects.db
+# Create non-root user for security
+RUN groupadd -r appuser && useradd -r -g appuser appuser
 
-# Expose port 3000
+# Ensure the database file exists and set proper ownership
+RUN touch projects.db && chown appuser:appuser projects.db && chmod 644 projects.db
+
+# Change ownership of app directory to non-root user
+RUN chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
+
+# Expose port 3001
 EXPOSE 3001
 
 # Tell Puppeteer to use the installed Chromium
-# The path is usually /usr/bin/chromium in Debian
+# The path is /usr/bin/chromium in Debian
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
+# Add health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD node -e "require('http').get('http://localhost:3001/', (r) => r.statusCode === 200 ? process.exit(0) : process.exit(1))" || exit 1
+
 # Run the application
-# Important: We'll need to use --no-sandbox in puppeteer.launch in the code
-CMD [ "npm", "start" ]
+CMD ["npm", "start"]
