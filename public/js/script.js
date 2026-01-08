@@ -54,12 +54,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
-    // Load Last Used Project from LocalStorage
-    const lastProject = JSON.parse(localStorage.getItem('lastProject') || 'null');
-    if (lastProject && lastProject.id) {
-        const option = new Option(lastProject.name, lastProject.id, true, true);
-        projectSelect.append(option).trigger('change');
-    }
+
 
     // Initialize Select2 for Assignee (Standard Select, populated dynamically)
     const assigneeSelect = $('#assigneeId').select2({
@@ -104,6 +99,52 @@ document.addEventListener('DOMContentLoaded', async () => {
             console.error('Error loading local assignees:', error);
         }
     };
+
+
+    // --- Task Type Logic ---
+    const loadProjectTypes = async (projectId) => {
+        const typeSelect = $('#taskType');
+        typeSelect.empty().append('<option value="" disabled selected>Loading...</option>');
+        typeSelect.prop('disabled', true);
+
+        try {
+            const response = await fetch(`/api/projects/${projectId}/types`);
+            if (!response.ok) throw new Error('Failed to fetch types');
+            const types = await response.json();
+
+            typeSelect.empty();
+            if (types.length === 0) {
+                typeSelect.append('<option value="" disabled selected>No types found</option>');
+            } else {
+                types.forEach(t => {
+                    const isTask = t.type_name === 'Task'; // Pre-select 'Task'
+                    typeSelect.append(new Option(t.type_name, t.type_id, isTask, isTask));
+                });
+                typeSelect.prop('disabled', false); // Enable
+            }
+        } catch (error) {
+            console.error(error);
+            typeSelect.empty().append('<option value="" disabled selected>Error loading types</option>');
+        }
+    };
+
+    // Project Select Change Listener using jQuery
+    $('#projectId').on('change', function () {
+        const projectId = $(this).val();
+        if (projectId) {
+            loadProjectTypes(projectId);
+        } else {
+            $('#taskType').empty().append('<option value="" disabled selected>Select a Project first</option>').prop('disabled', true);
+        }
+    });
+
+    // Load Last Used Project from LocalStorage (Trigger AFTER listener is attached)
+    const lastProject = JSON.parse(localStorage.getItem('lastProject') || 'null');
+    if (lastProject && lastProject.id) {
+        // We append manually because Select2 might not have loaded options yet if they are remote
+        const option = new Option(lastProject.name, lastProject.id, true, true);
+        $('#projectId').append(option).trigger('change');
+    }
 
     // --- History Logic (SQLite via API) ---
     let currentHistoryPage = 1;
@@ -664,6 +705,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Get values
         const projectId = $('#projectId').val();
         let assigneeId = $('#assigneeId').val();
+        const typeId = $('#taskType').val(); // Get Type ID
         const subject = document.getElementById('taskName').value;
 
         // Auto-Assign Self if empty
@@ -713,6 +755,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 body: JSON.stringify({
                     projectId,
                     subject,
+                    typeId, // Send Type ID
                     assigneeId,
                     startDate,
                     dueDate,

@@ -127,8 +127,83 @@ async function puppeteerFetch(url, options = {}, specificApiKey = null, timeoutM
         console.error('Puppeteer Error:', error);
         throw error;
     } finally {
-        await browser.close();
+        if (browser) await browser.close();
     }
+}
+
+// Reuseable Browser Session Helpers
+async function createBrowserSession(apiKey) {
+    console.log('[BrowserSession] Starting new session...');
+    const browser = await puppeteer.launch({
+        headless: 'new',
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--disable-gpu'
+        ]
+    });
+
+    try {
+        const page = await browser.newPage();
+        await page.setViewport({ width: 1920, height: 1080 });
+
+        if (apiKey) {
+            await page.authenticate({ username: 'apikey', password: apiKey });
+        }
+
+        // Initialize session
+        await page.goto(`${HOST}`, { waitUntil: 'domcontentloaded', timeout: 8000 }).catch(e => console.log('Session init nav warning:', e.message));
+
+        return { browser, page, apiKey };
+    } catch (e) {
+        await browser.close();
+        throw e;
+    }
+}
+
+async function fetchWithSession(session, url, options = {}, timeoutMs = 30000) {
+    const { page, apiKey } = session;
+    const authString = apiKey ? Buffer.from(`apikey:${apiKey}`).toString('base64') : null;
+
+    return await page.evaluate(async (endpoint, fetchOptions, auth, timeoutMs) => {
+        try {
+            const controller = new AbortController();
+            const id = setTimeout(() => controller.abort(), timeoutMs);
+
+            const headers = {
+                'Authorization': `Basic ${auth}`,
+                'Content-Type': 'application/json',
+                ...fetchOptions.headers
+            };
+
+            const response = await fetch(endpoint, {
+                ...fetchOptions,
+                headers: headers,
+                signal: controller.signal
+            });
+            clearTimeout(id);
+
+            const text = await response.text();
+            try {
+                return {
+                    status: response.status,
+                    data: JSON.parse(text)
+                };
+            } catch {
+                return {
+                    status: response.status,
+                    data: text,
+                    error: 'Failed to parse JSON response form API'
+                };
+            }
+        } catch (err) {
+            return { status: 500, error: err.toString() };
+        }
+    }, url, options, authString, timeoutMs);
 }
 
 const sqlite3 = require('sqlite3').verbose();
@@ -155,7 +230,9 @@ db.serialize(() => {
         web_url TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
+
     db.run("CREATE TABLE IF NOT EXISTS user_project_mapping (user_id TEXT, project_id TEXT, PRIMARY KEY(user_id, project_id))");
+    db.run("CREATE TABLE IF NOT EXISTS project_types (project_id TEXT, type_id TEXT, type_name TEXT, PRIMARY KEY(project_id, type_id))");
 });
 
 // Helper to save projects to DB (Upsert Logic)
@@ -172,39 +249,39 @@ function saveProjectsToDB(projects) {
         `);
 
         const now = new Date().toISOString();
-        let newCount = 0;
-
         projects.forEach(p => {
             stmt.run(p.id, p.name, now);
         });
 
         stmt.finalize();
-
-        // Update last sync time
         db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('last_sync', ?)", now);
         db.run("COMMIT");
     });
     console.log(`Synced ${projects.length} projects with database at ${new Date().toISOString()}`);
 }
 
-// Helper to Sync User Projects
-// Helper to Sync All Projects (Global)
+// Helper to Sync All Projects (Global) with Types using Session
 async function syncAllProjects(apiKey) {
     if (!apiKey) return;
 
-    console.log(`Syncing ALL projects...`);
+    console.log(`Syncing ALL projects and types (Persistent Session)...`);
+    let session = null;
+
     try {
-        // Fetch projects visible to this user API Key
-        const result = await puppeteerFetch(`${HOST}/api/v3/projects?pageSize=500`, { method: 'GET' }, apiKey);
+        session = await createBrowserSession(apiKey);
+
+        // 1. Fetch Projects
+        const result = await fetchWithSession(session, `${HOST}/api/v3/projects?pageSize=500`, { method: 'GET' });
 
         if (result.status === 200 && result.data && result.data._embedded && result.data._embedded.elements) {
             const projects = result.data._embedded.elements;
-            console.log(`Found ${projects.length} projects.`);
+            console.log(`Found ${projects.length} projects. Syncing types...`);
 
             db.serialize(() => {
                 db.run("BEGIN TRANSACTION");
+                const now = new Date().toISOString();
 
-                // Update Global Project Cache
+                // Projects Upsert
                 const upsertStmt = db.prepare(`
                     INSERT INTO projects (project_id, name, updated_at) 
                     VALUES (?, ?, ?)
@@ -213,23 +290,64 @@ async function syncAllProjects(apiKey) {
                     updated_at = excluded.updated_at
                 `);
 
-                const now = new Date().toISOString();
                 projects.forEach(p => {
                     upsertStmt.run(p.id.toString(), p.name, now);
                 });
-
                 upsertStmt.finalize();
                 db.run("COMMIT");
             });
 
-            return projects.length; // Return count
+            // 2. Fetch Types for each project (Sequential loop with same session is fast)
+            let typeCount = 0;
+
+            for (const p of projects) {
+                try {
+                    const typeRes = await fetchWithSession(session, `${HOST}/api/v3/projects/${p.id}/types`, { method: 'GET' }, 5000);
+
+                    if (typeRes.status === 200 && typeRes.data && typeRes.data._embedded && typeRes.data._embedded.elements) {
+                        const types = typeRes.data._embedded.elements;
+
+                        await new Promise((resolve) => {
+                            db.serialize(() => {
+                                db.run("BEGIN TRANSACTION");
+                                const typeStmt = db.prepare("INSERT OR REPLACE INTO project_types (project_id, type_id, type_name) VALUES (?, ?, ?)");
+                                types.forEach(t => {
+                                    typeStmt.run(p.id.toString(), t.id.toString(), t.name);
+                                    typeCount++;
+                                });
+                                typeStmt.finalize();
+                                db.run("COMMIT", resolve);
+                            });
+                        });
+                    }
+                } catch (err) {
+                    // console.error(`Failed to sync types for Project ${p.id}:`, err.message);
+                }
+            }
+
+            console.log(`Synced Types: ${typeCount}`);
+            return projects.length;
         }
         return 0;
     } catch (e) {
         console.error("Failed to sync projects:", e.message);
-        throw e; // Throw to let endpoint handle error
+        throw e;
+    } finally {
+        if (session && session.browser) {
+            console.log('[BrowserSession] Closing session...');
+            await session.browser.close();
+        }
     }
 }
+
+// GET Project Types
+app.get('/api/projects/:id/types', (req, res) => {
+    const projectId = req.params.id;
+    db.all("SELECT type_id, type_name FROM project_types WHERE project_id = ? ORDER BY type_name", [projectId], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows || []);
+    });
+});
 
 
 // GET Projects: Read from DB (Filtered by User)
@@ -242,7 +360,7 @@ app.get('/api/projects', (req, res) => {
 
     if (search) {
         query += " WHERE name LIKE ?";
-        params.push(`%${search}%`);
+        params.push(`% ${search}% `);
     }
 
     query += " ORDER BY name ASC";
@@ -270,7 +388,7 @@ app.post('/api/login', async (req, res) => {
 
     try {
         // Use puppeteerFetch to verify (Bypasses Cloudflare)
-        const result = await puppeteerFetch(`${HOST}/api/v3/users/me`, {
+        const result = await puppeteerFetch(`${HOST} /api/v3 / users / me`, {
             method: 'GET'
         }, apikey);
 
@@ -280,7 +398,7 @@ app.post('/api/login', async (req, res) => {
                 try { user = JSON.parse(user); } catch (e) { }
             }
 
-            console.log(`Login successful for: ${user.name}`);
+            console.log(`Login successful for: ${user.name} `);
 
             // Set HTTP-Only Cookie
             res.cookie('user_apikey', apikey, {
@@ -299,7 +417,7 @@ app.post('/api/login', async (req, res) => {
                 maxAge: 30 * 24 * 60 * 60 * 1000
             });
 
-            console.log(`Login successful for ${user.name} (ID: ${user.id})`);
+            console.log(`Login successful for ${user.name}(ID: ${user.id})`);
 
             // Sync Projects (All accessible)
             await syncAllProjects(apikey);
@@ -309,7 +427,7 @@ app.post('/api/login', async (req, res) => {
                 user: { id: user.id || 0, name: user.name || 'User' }
             });
         } else {
-            console.warn(`Login failed. Status: ${result.status}`);
+            console.warn(`Login failed.Status: ${result.status} `);
             res.status(401).json({
                 error: 'Login failed. Cloudflare or Invalid Key.',
                 details: typeof result.data === 'string' ? result.data.substring(0, 150) : JSON.stringify(result.data)
@@ -336,7 +454,7 @@ app.get('/api/user', async (req, res) => {
         if (!req.cookies.user_id && req.cookies.user_apikey) {
             try {
                 console.log("Missing user_id cookie, fetching from OpenProject...");
-                const result = await puppeteerFetch(`${HOST}/api/v3/users/me`, { method: 'GET' }, req.cookies.user_apikey);
+                const result = await puppeteerFetch(`${HOST} /api/v3 / users / me`, { method: 'GET' }, req.cookies.user_apikey);
                 if (result.status === 200 && result.data && result.data.id) {
                     const userId = result.data.id.toString();
                     res.cookie('user_id', userId, {
@@ -345,7 +463,7 @@ app.get('/api/user', async (req, res) => {
                         maxAge: 30 * 24 * 60 * 60 * 1000
                     });
                     session.user.id = userId;
-                    console.log(`Auto-fixed missing user_id: ${userId}`);
+                    console.log(`Auto - fixed missing user_id: ${userId} `);
                 }
             } catch (e) {
                 console.error("Failed to auto-fix user_id cookie", e);
@@ -384,7 +502,7 @@ app.get('/api/assignees', (req, res) => {
 async function findUserInProject(name, projectId) {
     try {
         console.log(`Searching for '${name}' in Project ${projectId}...`);
-        const url = `${HOST}/api/v3/projects/${projectId}/available_assignees`;
+        const url = `${HOST} /api/v3 / projects / ${projectId}/available_assignees`;
         const result = await puppeteerFetch(url, { method: 'GET' }, null, 3000); // 3s Timeout
 
         if (result.status >= 200 && result.status < 300 && result.data._embedded && result.data._embedded.elements) {
@@ -594,7 +712,7 @@ app.delete('/api/history/:id', (req, res) => {
 
 // API to create Work Package
 app.post('/api/work_packages', async (req, res) => {
-    const { projectId, subject, assigneeId, startDate, dueDate, percentageDone, spentHours } = req.body;
+    const { projectId, subject, assigneeId, typeId, startDate, dueDate, percentageDone, spentHours } = req.body;
     const userApiKey = req.cookies.user_apikey; // Get user's API key from login session
 
     if (!userApiKey) {
@@ -631,7 +749,7 @@ app.post('/api/work_packages', async (req, res) => {
             dueDate: dueDate || null,
             "_links": {
                 "type": {
-                    "href": "/api/v3/types/1" // ID 1 is 'Task'
+                    "href": `/api/v3/types/${typeId || 1}` // Use provided Type ID or default to 1 (Task)
                 }
             }
         };
@@ -746,62 +864,61 @@ app.delete('/api/work_packages/:id', async (req, res) => {
     }
 });
 
-// Sync Users Endpoint
+// API to sync users (POST) - Persistent Session
 app.post('/api/sync-users', async (req, res) => {
-    const userApiKey = req.cookies.user_apikey;
-    if (!userApiKey) {
-        return res.status(401).json({ error: 'Not authenticated' });
-    }
+    const apiKey = req.cookies.user_apikey;
+    if (!apiKey) return res.status(401).json({ error: 'Not authenticated' });
+
+    console.log('Syncing users (Persistent Session)...');
+    let session = null;
 
     try {
-        console.log('Syncing users...');
-        const projects = ['614', '615']; // Production & MA
-        const allUsers = new Map();
+        session = await createBrowserSession(apiKey);
 
-        // 1. Fetch from OpenProject
-        for (const pid of projects) {
-            console.log(`Scanning Project ${pid}...`);
-            const url = `${HOST}/api/v3/projects/${pid}/available_assignees`;
-            const result = await puppeteerFetch(url, { method: 'GET' }, userApiKey, 20000); // 20s timeout
+        const projectIds = [614, 615];
+        let allUsers = [];
 
-            if (result.status === 200 && result.data && result.data._embedded && result.data._embedded.elements) {
-                const elements = result.data._embedded.elements;
-                elements.forEach(el => {
-                    if (el._type === 'User') {
-                        allUsers.set(el.id.toString(), el.name);
-                    }
-                });
+        // Loop using same session
+        for (const pid of projectIds) {
+            console.log(`Fetching available assignees for project ${pid}...`);
+            const response = await fetchWithSession(session, `${HOST}/api/v3/projects/${pid}/available_assignees`, { method: 'GET' });
+
+            if (response.status === 200 && response.data && response.data._embedded && response.data._embedded.elements) {
+                allUsers = allUsers.concat(response.data._embedded.elements);
             } else {
-                console.error(`Failed to fetch project ${pid}: ${result.status}`);
+                console.warn(`Failed to fetch assignees for project ${pid}, Status: ${response.status}`);
             }
         }
 
-        console.log(`Found ${allUsers.size} unique users.`);
-
-        // 2. Insert into DB properly
-        let addedCount = 0;
-
-        for (const [id, name] of allUsers) {
-            await new Promise((resolve) => {
-                db.get("SELECT id FROM local_assignees WHERE openproject_id = ?", [id], (err, row) => {
-                    if (!row) {
-                        db.run("INSERT INTO local_assignees (name, openproject_id) VALUES (?, ?)", [name, id], (err) => {
-                            if (!err) addedCount++;
-                            resolve();
-                        });
-                    } else {
-                        resolve();
-                    }
-                });
-            });
+        if (allUsers.length === 0) {
+            return res.status(404).json({ error: 'No assignees found in specified projects.' });
         }
 
-        res.json({ message: `Sync completed. Found ${allUsers.size} users. Added ${addedCount} new users.` });
+        // De-duplicate users by ID
+        const uniqueUsers = Array.from(new Map(allUsers.map(u => [u.id, u])).values());
+        console.log(`Total unique assignees found: ${uniqueUsers.length}`);
 
+        // Save to DB
+        db.serialize(() => {
+            db.run("BEGIN TRANSACTION");
+            const stmt = db.prepare("INSERT OR REPLACE INTO local_assignees (id, name, openproject_id) VALUES (?, ?, ?)");
+            uniqueUsers.forEach(u => {
+                stmt.run(u.id, u.name, u.id);
+            });
+            stmt.finalize();
+            db.run("COMMIT");
+        });
 
-    } catch (e) {
-        console.error(e);
-        res.status(500).json({ error: e.message });
+        res.json({ message: 'Users synced successfully', count: uniqueUsers.length });
+
+    } catch (error) {
+        console.error('Sync users error:', error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        if (session && session.browser) {
+            console.log('[BrowserSession] Closing session...');
+            await session.browser.close();
+        }
     }
 });
 
