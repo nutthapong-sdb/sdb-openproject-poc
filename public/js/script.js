@@ -439,8 +439,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                         icon: 'success',
                         title: 'Sync Complete',
                         text: result.message || 'User list synchronized successfully.',
-                        timer: 2000,
-                        showConfirmButton: false
+                        // timer: 2000,
+                        showConfirmButton: true,
+                        confirmButtonText: 'OK'
                     });
                     loadAssignees(); // Reload dropdown
                 } else {
