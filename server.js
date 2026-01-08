@@ -506,22 +506,43 @@ app.get('/api/projects/:id/assignees', (req, res) => {
 
 // --- Task History API ---
 // GET History for current user
+// GET History for current user (with Pagination)
 app.get('/api/history', (req, res) => {
     const userId = req.cookies.user_id;
     if (!userId) {
         return res.status(401).json({ error: 'Not authenticated' });
     }
 
-    db.all(
-        "SELECT * FROM task_history WHERE user_id = ? ORDER BY created_at DESC LIMIT 50",
-        [userId],
-        (err, rows) => {
-            if (err) {
-                return res.status(500).json({ error: err.message });
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 5;
+    const offset = (page - 1) * limit;
+
+    // 1. Get Total Count
+    db.get("SELECT COUNT(*) as count FROM task_history WHERE user_id = ?", [userId], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        const totalItems = row.count;
+        const totalPages = Math.ceil(totalItems / limit);
+
+        // 2. Get Data for current page
+        db.all(
+            "SELECT * FROM task_history WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            [userId, limit, offset],
+            (err, rows) => {
+                if (err) return res.status(500).json({ error: err.message });
+
+                res.json({
+                    data: rows || [],
+                    pagination: {
+                        current: page,
+                        limit: limit,
+                        totalItems: totalItems,
+                        totalPages: totalPages
+                    }
+                });
             }
-            res.json(rows || []);
-        }
-    );
+        );
+    });
 });
 
 // POST Add to History

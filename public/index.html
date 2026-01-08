@@ -184,17 +184,18 @@
                     <h2>Recent History</h2>
                 </div>
                 <div class="history-container">
-                    <table id="historyTable" style="width: 100%; border-collapse: collapse; color: #eee;">
+                    <table id="historyTable"
+                        style="width: 100%; border-collapse: collapse; color: #eee; table-layout: fixed; font-size: 0.85rem;">
                         <thead>
                             <tr style="border-bottom: 2px solid #333;">
-                                <th style="padding: 10px; text-align: left;">Created</th>
-                                <th style="padding: 10px; text-align: left;">Task</th>
-                                <th style="padding: 10px; text-align: left;">Project</th>
-                                <th style="padding: 10px; text-align: left;">Start</th>
-                                <th style="padding: 10px; text-align: left;">Finish</th>
-                                <th style="padding: 10px; text-align: center;">Hours</th>
-                                <th style="padding: 10px; text-align: center;">Link</th>
-                                <th style="padding: 10px; text-align: center;"></th>
+                                <th style="padding: 10px; text-align: left; width: 80px;">Created</th>
+                                <th style="padding: 10px; text-align: left; width: 25%;">Task</th>
+                                <th style="padding: 10px; text-align: left; width: 20%;">Project</th>
+                                <th style="padding: 10px; text-align: left; width: 90px;">Start</th>
+                                <th style="padding: 10px; text-align: left; width: 90px;">Finish</th>
+                                <th style="padding: 10px; text-align: center; width: 60px;">Hours</th>
+                                <th style="padding: 10px; text-align: center; width: 50px;">Link</th>
+                                <th style="padding: 10px; text-align: center; width: 40px;"></th>
                             </tr>
                         </thead>
                         <tbody id="historyBody">
@@ -204,6 +205,29 @@
                             </tr>
                         </tbody>
                     </table>
+                </div>
+                <!-- Pagination Controls -->
+                <div id="paginationControls"
+                    style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px; font-size: 0.9rem; color: #888;">
+                    <span id="pageInfo">Showing 0-0 of 0</span>
+                    <div style="display: flex; gap: 10px;">
+                        <button id="prevPageBtn" disabled
+                            style="background: transparent; border: 1px solid #444; color: var(--text-color); width: 32px; height: 32px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+                                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                stroke-linejoin="round">
+                                <polyline points="15 18 9 12 15 6"></polyline>
+                            </svg>
+                        </button>
+                        <button id="nextPageBtn" disabled
+                            style="background: transparent; border: 1px solid #444; color: var(--text-color); width: 32px; height: 32px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+                                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                stroke-linejoin="round">
+                                <polyline points="9 18 15 12 9 6"></polyline>
+                            </svg>
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

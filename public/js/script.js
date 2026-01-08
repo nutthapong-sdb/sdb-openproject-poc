@@ -106,20 +106,46 @@ document.addEventListener('DOMContentLoaded', async () => {
     };
 
     // --- History Logic (SQLite via API) ---
-    const loadHistory = async () => {
+    let currentHistoryPage = 1;
+    const historyLimit = 5;
+
+    // Helper: Format Date YYYY-MM-DD -> DD-MM-YYYY
+    const formatDate = (dateString) => {
+        if (!dateString) return '-';
+        const date = new Date(dateString);
+        if (isNaN(date.getTime())) return dateString; // Return original if invalid
+
+        // Handle timezone offset if needed, or just split string if format is consistent
+        // Assuming input is YYYY-MM-DD
+        const parts = dateString.split('-');
+        if (parts.length === 3) {
+            return `${parts[2]}-${parts[1]}-${parts[0]}`;
+        }
+        return date.toLocaleDateString('en-GB').replace(/\//g, '-');
+    };
+
+    const loadHistory = async (page = 1) => {
         const historyBody = document.getElementById('historyBody');
+        const pageInfo = document.getElementById('pageInfo');
+        const prevPageBtn = document.getElementById('prevPageBtn');
+        const nextPageBtn = document.getElementById('nextPageBtn');
 
         try {
-            const response = await fetch('/api/history');
+            const response = await fetch(`/api/history?page=${page}&limit=${historyLimit}`);
             if (!response.ok) {
                 historyBody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px; color: #777;">Failed to load history.</td></tr>';
                 return;
             }
 
-            const history = await response.json();
+            const result = await response.json();
+            const history = result.data || [];
+            const pagination = result.pagination || { current: 1, totalItems: 0, totalPages: 1 };
 
             if (history.length === 0) {
                 historyBody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px; color: #777;">No recent tasks created.</td></tr>';
+                pageInfo.innerText = 'Showing 0-0 of 0';
+                prevPageBtn.disabled = true;
+                nextPageBtn.disabled = true;
                 return;
             }
 
@@ -129,10 +155,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const row = document.createElement('tr');
                 row.innerHTML = `
                     <td style="padding: 12px 10px; border-bottom: 1px solid #333; color: #aaa; font-size: 0.85rem;">${createdAt}</td>
-                    <td style="padding: 12px 10px; border-bottom: 1px solid #333; font-weight: 500;">${item.subject || '-'}</td>
-                    <td style="padding: 12px 10px; border-bottom: 1px solid #333; color: #aaa;">${item.project_name || '-'}</td>
-                    <td style="padding: 12px 10px; border-bottom: 1px solid #333;">${item.start_date || '-'}</td>
-                    <td style="padding: 12px 10px; border-bottom: 1px solid #333;">${item.due_date || '-'}</td>
+                    <td style="padding: 12px 10px; border-bottom: 1px solid #333; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${item.subject || ''}">${item.subject || '-'}</td>
+                    <td style="padding: 12px 10px; border-bottom: 1px solid #333; color: #aaa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${item.project_name || ''}">${item.project_name || '-'}</td>
+                    <td style="padding: 12px 10px; border-bottom: 1px solid #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${formatDate(item.start_date)}</td>
+                    <td style="padding: 12px 10px; border-bottom: 1px solid #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${formatDate(item.due_date)}</td>
                     <td style="padding: 12px 10px; border-bottom: 1px solid #333; text-align: center;">${item.spent_hours ? item.spent_hours + ' h' : '-'}</td>
                     <td style="padding: 12px 10px; border-bottom: 1px solid #333; text-align: center;"><a href="${item.web_url}" target="_blank" class="history-link" style="color: #FF8F00;">View</a></td>
                     <td style="padding: 12px 10px; border-bottom: 1px solid #333; text-align: center;">
@@ -141,6 +167,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                 `;
                 historyBody.appendChild(row);
             });
+
+            // Update Pagination UI
+            currentHistoryPage = pagination.current;
+            const startItem = (pagination.current - 1) * pagination.limit + 1;
+            const endItem = Math.min(pagination.current * pagination.limit, pagination.totalItems);
+            pageInfo.innerText = `Showing ${startItem}-${endItem} of ${pagination.totalItems}`;
+
+            prevPageBtn.disabled = pagination.current <= 1;
+            nextPageBtn.disabled = pagination.current >= pagination.totalPages;
 
             // Attach delete handlers
             document.querySelectorAll('.delete-history-btn').forEach(btn => {
@@ -152,6 +187,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                     deleteFromHistory(historyId, opId, subject);
                 });
             });
+
+            // Pagination Listeners (ensure only one binding)
+            prevPageBtn.onclick = () => loadHistory(currentHistoryPage - 1);
+            nextPageBtn.onclick = () => loadHistory(currentHistoryPage + 1);
+
         } catch (error) {
             console.error('Error loading history:', error);
             historyBody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px; color: #c62828;">Error loading history.</td></tr>';
@@ -191,7 +231,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 method: 'DELETE'
             });
 
-            loadHistory();
+            loadHistory(currentHistoryPage);
 
             if (opResponse.ok || opResponse.status === 404) {
                 Swal.fire({
