@@ -941,6 +941,24 @@ app.post('/api/sync-projects', async (req, res) => {
     }
 });
 
+// GET User Stats for Dashboard
+app.get('/api/users-stats', (req, res) => {
+    const query = `
+        SELECT 
+            a.name, 
+            COUNT(h.id) as task_count
+        FROM local_assignees a 
+        LEFT JOIN task_history h ON a.openproject_id = h.user_id 
+        GROUP BY a.openproject_id 
+        ORDER BY task_count DESC, a.name ASC
+    `;
+
+    db.all(query, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
     console.log(`Database file should be at: ${require('path').resolve(dbFile)}`);

@@ -239,6 +239,67 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     };
 
+    // Load User Stats
+    const loadUserStats = async () => {
+        const tbody = document.getElementById('usersStatsBody');
+        if (!tbody) return;
+
+        try {
+            const response = await fetch('/api/users-stats');
+            if (!response.ok) throw new Error('Failed to fetch stats');
+            const users = await response.json();
+
+            tbody.innerHTML = '';
+
+            if (users.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; padding: 20px; color: #777;">No users found.</td></tr>';
+                return;
+            }
+
+            const topUsers = users.slice(0, 10);
+
+            topUsers.forEach((u, index) => {
+                const rank = index + 1;
+                const tr = document.createElement('tr');
+                tr.className = `rank-row rank-${rank}`; // Helper class for CSS
+
+                let iconHtml = '';
+                let nameStyle = 'font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px;';
+
+                if (rank === 1) {
+                    iconHtml = '<div class="rank-icon">👑</div>';
+                    nameStyle += 'color: #ffd700; text-shadow: 0 0 5px rgba(255, 215, 0, 0.5);';
+                } else if (rank === 2) {
+                    iconHtml = '<div class="rank-icon">⭐</div>';
+                    nameStyle += 'color: #ffd700;';
+                } else if (rank === 3) {
+                    nameStyle += 'color: #e0e0e0;';
+                } else if (rank === 4) {
+                    nameStyle += 'color: #cd7f32;';
+                }
+
+                tr.innerHTML = `
+                    <td style="padding: 10px; border-bottom: 1px solid #333; text-align: center; color: #888; font-weight: ${rank <= 3 ? 'bold' : 'normal'}; font-size: ${rank <= 3 ? '1.1rem' : '0.9rem'};">${rank}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #333; display: flex; align-items: center;">
+                        <div class="rank-avatar-container">
+                             ${iconHtml}
+                             <div class="rank-frame">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="${rank <= 5 ? '#fff' : '#aaa'}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                             </div>
+                        </div>
+                        <span style="${nameStyle}" title="${u.name}">${u.name || 'Unknown'}</span>
+                    </td>
+                    <td style="padding: 10px; border-bottom: 1px solid #333; text-align: center; font-weight: bold; color: var(--primary-color); font-size: ${rank <= 3 ? '1.1rem' : '0.9rem'};">${u.task_count}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+        } catch (error) {
+            console.error(error);
+            tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; padding: 20px; color: #c62828;">Error.</td></tr>';
+        }
+    };
+
     const deleteFromHistory = async (historyId, openprojectId, subject) => {
         // Confirmation Dialog
         const result = await Swal.fire({
@@ -273,6 +334,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
 
             loadHistory(currentHistoryPage);
+            loadUserStats(); // Reload Stats
 
             if (opResponse.ok || opResponse.status === 404) {
                 Swal.fire({
@@ -324,7 +386,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Load on start
     loadAssignees();
-    loadHistory();
 
     // Settings Dropdown Logic
     const settingsBtn = document.getElementById('settingsBtn');
@@ -856,4 +917,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             btnLoader.style.display = 'none';
         }
     });
+    loadHistory(); // Initial Load History
+    loadUserStats(); // Initial Load Stats
 });

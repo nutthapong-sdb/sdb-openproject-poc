@@ -98,149 +98,179 @@
         </header>
 
         <div class="content-row">
-            <!-- Left Panel: Create Task -->
-            <div class="panel left-panel">
-                <header>
-                    <h2>Create New Task</h2>
-                    <p>Add a new work package to OpenProject</p>
-                </header>
+            <!-- Left Column: Create & History -->
+            <div class="left-column-wrapper"
+                style="flex: 1.2; display: flex; flex-direction: column; gap: 20px; min-width: 450px;">
+                <!-- Panel 1: Create Task -->
+                <div class="panel left-panel" style="width: 100%; max-width: none;">
+                    <header>
+                        <h2>Create New Task</h2>
+                        <p>Add a new work package to OpenProject</p>
+                    </header>
 
-                <main>
-                    <form id="createTaskForm">
-                        <div class="form-group">
-                            <label for="projectId">Project</label>
-                            <select id="projectId" style="width: 100%;" required>
-                                <option value="" disabled selected>Search projects...</option>
-                            </select>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="taskType">Task Type</label>
-                            <select id="taskType" style="width: 100%;" required disabled>
-                                <option value="" disabled selected>Select a Project first</option>
-                            </select>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="taskName">Task Name</label>
-                            <input type="text" id="taskName" placeholder="Enter task name" required>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="taskDescription">Description</label>
-                            <textarea id="taskDescription" placeholder="Enter task description (optional)" rows="3"
-                                style="width: 100%; padding: 10px; border: 1px solid #333; border-radius: 4px; background: #2a2a2a; color: #fff;"></textarea>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="assigneeId">Assignee</label>
-                            <div style="display: flex; gap: 10px; align-items: center;">
-                                <select id="assigneeId" style="width: 100%;">
-                                    <option value="" disabled selected>Select an Assignee</option>
+                    <main>
+                        <form id="createTaskForm">
+                            <div class="form-group">
+                                <label for="projectId">Project</label>
+                                <select id="projectId" style="width: 100%;" required>
+                                    <option value="" disabled selected>Search projects...</option>
                                 </select>
-                                <button type="button" id="manageAssigneesBtn"
-                                    style="width: 48px; padding: 0; height: 48px; font-size: 1.5rem;"
-                                    title="Manage Assignees">+</button>
                             </div>
-                        </div>
 
-                        <div class="form-group">
-                            <label for="startDate">Start Date</label>
-                            <div style="display: flex; gap: 10px; align-items: center;">
-                                <input type="date" id="startDate" style="flex: 1;">
-                                <button type="button" id="todayBtn" title="Set Start Date to Today"
-                                    style="width: auto; padding: 0 15px; height: 46px; white-space: nowrap;">
-                                    Today
-                                </button>
+                            <div class="form-group">
+                                <label for="taskType">Task Type</label>
+                                <select id="taskType" style="width: 100%;" required disabled>
+                                    <option value="" disabled selected>Select a Project first</option>
+                                </select>
                             </div>
-                        </div>
 
-                        <div class="form-group">
-                            <label for="dueDate">Finish Date</label>
-                            <div style="display: flex; gap: 10px; align-items: center;">
-                                <input type="date" id="dueDate" style="flex: 1;">
-                                <button type="button" id="sameDateBtn" title="Set End Date same as Start Date"
-                                    style="width: auto; padding: 0 15px; height: 46px; white-space: nowrap;">
-                                    Same as Start Date
-                                </button>
+                            <div class="form-group">
+                                <label for="taskName">Task Name</label>
+                                <input type="text" id="taskName" placeholder="Enter task name" required>
                             </div>
-                        </div>
 
-                        <div class="form-group">
-                            <label for="spentHours">Time Spent (Hours)</label>
-                            <input type="number" id="spentHours" placeholder="e.g. 2 or 8" min="0" step="0.5" value="1">
-                        </div>
-
-                        <div class="form-group">
-                            <label>% Complete</label>
-                            <div class="percentage-group">
-                                <input type="hidden" id="percentageDone" value="100">
-                                <button type="button" class="percent-btn" data-value="0">0%</button>
-                                <button type="button" class="percent-btn" data-value="25">25%</button>
-                                <button type="button" class="percent-btn" data-value="50">50%</button>
-                                <button type="button" class="percent-btn" data-value="75">75%</button>
-                                <button type="button" class="percent-btn active" data-value="100">100%</button>
+                            <div class="form-group">
+                                <label for="taskDescription">Description</label>
+                                <textarea id="taskDescription" placeholder="Enter task description (optional)" rows="3"
+                                    style="width: 100%; padding: 10px; border: 1px solid #333; border-radius: 4px; background: #2a2a2a; color: #fff;"></textarea>
                             </div>
-                        </div>
 
-                        <button type="submit" id="submitBtn">
-                            <span>Add Task</span>
-                            <div class="loader" id="btnLoader"></div>
-                        </button>
-                    </form>
-                </main>
-            </div>
+                            <div class="form-group">
+                                <label for="assigneeId">Assignee</label>
+                                <div style="display: flex; gap: 10px; align-items: center;">
+                                    <select id="assigneeId" style="width: 100%;">
+                                        <option value="" disabled selected>Select an Assignee</option>
+                                    </select>
+                                    <button type="button" id="manageAssigneesBtn"
+                                        style="width: 48px; padding: 0; height: 48px; font-size: 1.5rem;"
+                                        title="Manage Assignees">+</button>
+                                </div>
+                            </div>
 
-            <!-- Right Panel: History -->
-            <div class="panel right-panel">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                    <h2>Recent History</h2>
+                            <div class="form-group">
+                                <label for="startDate">Start Date</label>
+                                <div style="display: flex; gap: 10px; align-items: center;">
+                                    <input type="date" id="startDate" style="flex: 1;">
+                                    <button type="button" id="todayBtn" title="Set Start Date to Today"
+                                        style="width: auto; padding: 0 15px; height: 46px; white-space: nowrap;">
+                                        Today
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="dueDate">Finish Date</label>
+                                <div style="display: flex; gap: 10px; align-items: center;">
+                                    <input type="date" id="dueDate" style="flex: 1;">
+                                    <button type="button" id="sameDateBtn" title="Set End Date same as Start Date"
+                                        style="width: auto; padding: 0 15px; height: 46px; white-space: nowrap;">
+                                        Same as Start Date
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="spentHours">Time Spent (Hours)</label>
+                                <input type="number" id="spentHours" placeholder="e.g. 2 or 8" min="0" step="0.5"
+                                    value="1">
+                            </div>
+
+                            <div class="form-group">
+                                <label>% Complete</label>
+                                <div class="percentage-group">
+                                    <input type="hidden" id="percentageDone" value="100">
+                                    <button type="button" class="percent-btn" data-value="0">0%</button>
+                                    <button type="button" class="percent-btn" data-value="25">25%</button>
+                                    <button type="button" class="percent-btn" data-value="50">50%</button>
+                                    <button type="button" class="percent-btn" data-value="75">75%</button>
+                                    <button type="button" class="percent-btn active" data-value="100">100%</button>
+                                </div>
+                            </div>
+
+                            <button type="submit" id="submitBtn">
+                                <span>Add Task</span>
+                                <div class="loader" id="btnLoader"></div>
+                            </button>
+                        </form>
+                    </main>
                 </div>
-                <div class="history-container">
-                    <table id="historyTable"
-                        style="width: 100%; border-collapse: collapse; color: #eee; table-layout: fixed; font-size: 0.85rem;">
+
+                <!-- Panel 2: History -->
+                <div class="panel right-panel" style="width: 100%; max-width: none; min-width: 0;">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h2>Recent History</h2>
+                    </div>
+                    <div class="history-container">
+                        <table id="historyTable"
+                            style="width: 100%; border-collapse: collapse; color: #eee; table-layout: fixed; font-size: 0.85rem;">
+                            <thead>
+                                <tr style="border-bottom: 2px solid #333;">
+                                    <th style="padding: 10px; text-align: left; width: 80px;">Created</th>
+                                    <th style="padding: 10px; text-align: left; width: 25%;">Task</th>
+                                    <th style="padding: 10px; text-align: left; width: 20%;">Project</th>
+                                    <th style="padding: 10px; text-align: left; width: 90px;">Start</th>
+                                    <th style="padding: 10px; text-align: left; width: 90px;">Finish</th>
+                                    <th style="padding: 10px; text-align: center; width: 60px;">Hours</th>
+                                    <th style="padding: 10px; text-align: center; width: 50px;">Link</th>
+                                    <th style="padding: 10px; text-align: center; width: 40px;"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="historyBody">
+                                <tr>
+                                    <td colspan="4" style="text-align: center; padding: 20px; color: #777;">Loading
+                                        history...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <!-- Pagination Controls -->
+                    <div id="paginationControls"
+                        style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px; font-size: 0.9rem; color: #888;">
+                        <span id="pageInfo">Showing 0-0 of 0</span>
+                        <div style="display: flex; gap: 10px;">
+                            <button id="prevPageBtn" disabled
+                                style="background: transparent; border: 1px solid #444; color: var(--text-color); width: 32px; height: 32px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+                                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                    stroke-linejoin="round">
+                                    <polyline points="15 18 9 12 15 6"></polyline>
+                                </svg>
+                            </button>
+                            <button id="nextPageBtn" disabled
+                                style="background: transparent; border: 1px solid #444; color: var(--text-color); width: 32px; height: 32px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+                                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                    stroke-linejoin="round">
+                                    <polyline points="9 18 15 12 9 6"></polyline>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div> <!-- End Left Column Wrapper -->
+
+            <!-- Stats Panel: Active Users -->
+            <div class="panel right-panel-users" style="min-width: 300px; display: flex; flex-direction: column;">
+                <div style="margin-bottom: 20px;">
+                    <h2>Ranking</h2>
+                </div>
+                <div class="users-stats-container" style="overflow-y: auto; flex: 1;">
+                    <table id="usersStatsTable"
+                        style="width: 100%; border-collapse: collapse; color: #eee; font-size: 0.9rem;">
                         <thead>
                             <tr style="border-bottom: 2px solid #333;">
-                                <th style="padding: 10px; text-align: left; width: 80px;">Created</th>
-                                <th style="padding: 10px; text-align: left; width: 25%;">Task</th>
-                                <th style="padding: 10px; text-align: left; width: 20%;">Project</th>
-                                <th style="padding: 10px; text-align: left; width: 90px;">Start</th>
-                                <th style="padding: 10px; text-align: left; width: 90px;">Finish</th>
-                                <th style="padding: 10px; text-align: center; width: 60px;">Hours</th>
-                                <th style="padding: 10px; text-align: center; width: 50px;">Link</th>
-                                <th style="padding: 10px; text-align: center; width: 40px;"></th>
+                                <th style="padding: 10px; width: 50px; text-align: center;">No.</th>
+                                <th style="padding: 10px; text-align: left;">Name</th>
+                                <th style="padding: 10px; width: 60px; text-align: center;">Tasks</th>
                             </tr>
                         </thead>
-                        <tbody id="historyBody">
+                        <tbody id="usersStatsBody">
                             <tr>
-                                <td colspan="4" style="text-align: center; padding: 20px; color: #777;">Loading
-                                    history...</td>
+                                <td colspan="3" style="text-align: center; padding: 20px; color: #777;">Loading...</td>
                             </tr>
                         </tbody>
                     </table>
-                </div>
-                <!-- Pagination Controls -->
-                <div id="paginationControls"
-                    style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px; font-size: 0.9rem; color: #888;">
-                    <span id="pageInfo">Showing 0-0 of 0</span>
-                    <div style="display: flex; gap: 10px;">
-                        <button id="prevPageBtn" disabled
-                            style="background: transparent; border: 1px solid #444; color: var(--text-color); width: 32px; height: 32px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0;">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
-                                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                stroke-linejoin="round">
-                                <polyline points="15 18 9 12 15 6"></polyline>
-                            </svg>
-                        </button>
-                        <button id="nextPageBtn" disabled
-                            style="background: transparent; border: 1px solid #444; color: var(--text-color); width: 32px; height: 32px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0;">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
-                                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                stroke-linejoin="round">
-                                <polyline points="9 18 15 12 9 6"></polyline>
-                            </svg>
-                        </button>
-                    </div>
                 </div>
             </div>
         </div>
