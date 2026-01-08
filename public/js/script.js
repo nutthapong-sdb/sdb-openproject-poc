@@ -79,7 +79,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             assigneeSelect.empty().append('<option value="" disabled selected>Select an Assignee</option>');
 
             users.forEach(user => {
-                const option = new Option(user.name, user.id, false, false);
+                // Use openproject_id as value if available, otherwise fallback to local id (though OP ID is preferred)
+                const val = user.openproject_id || user.id;
+                const option = new Option(user.name, val, false, false);
                 assigneeSelect.append(option);
             });
 
@@ -91,10 +93,25 @@ document.addEventListener('DOMContentLoaded', async () => {
                     const meRes = await fetch('/api/user');
                     if (meRes.ok) {
                         const me = await meRes.json();
-                        const myName = me.name || (me.firstName + ' ' + me.lastName);
-                        const match = users.find(u => u.name === myName);
-                        if (match) {
-                            assigneeSelect.val(match.id).trigger('change');
+                        // me.id is the OpenProject ID (from session/login)
+                        // Try to find matching option by ID first
+                        let matchId = null;
+
+                        // Check if we have exact ID match
+                        const matchById = users.find(u => u.openproject_id == me.id);
+                        if (matchById) {
+                            matchId = matchById.openproject_id;
+                        } else {
+                            // Fallback to name match
+                            const myName = me.name || (me.firstName + ' ' + me.lastName);
+                            const matchByName = users.find(u => u.name === myName);
+                            if (matchByName) {
+                                matchId = matchByName.openproject_id || matchByName.id;
+                            }
+                        }
+
+                        if (matchId) {
+                            assigneeSelect.val(matchId).trigger('change');
                         }
                     }
                 } catch (e) { console.warn('Auto-select user failed', e); }
