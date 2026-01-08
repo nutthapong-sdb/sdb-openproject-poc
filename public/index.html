@@ -100,9 +100,9 @@
         </header>
 
         <div class="content-row">
-            <!-- Left Column: Create & History -->
+            <!-- Left Column: Create Task (58% / col-7) -->
             <div class="left-column-wrapper"
-                style="flex: 1.2; display: flex; flex-direction: column; gap: 20px; min-width: 450px;">
+                style="flex: 7; display: flex; flex-direction: column; gap: 20px; min-width: 450px;">
                 <!-- Panel 1: Create Task -->
                 <div class="panel left-panel" style="width: 100%; max-width: none;">
                     <header>
@@ -196,8 +196,37 @@
                         </form>
                     </main>
                 </div>
+            </div>
 
-                <!-- Panel 2: History -->
+            <!-- Right Column: Ranking & History (41% / col-5) -->
+            <div class="right-column-wrapper"
+                style="flex: 5; display: flex; flex-direction: column; gap: 20px; min-width: 350px;">
+                <!-- Panel 2: Ranking -->
+                <div class="panel right-panel-users" style="min-width: 0; display: flex; flex-direction: column;">
+                    <div style="margin-bottom: 20px;">
+                        <h2>Ranking</h2>
+                    </div>
+                    <div class="users-stats-container" style="overflow-y: auto; flex: 1;">
+                        <table id="usersStatsTable"
+                            style="width: 100%; border-collapse: collapse; color: #eee; font-size: 0.9rem;">
+                            <thead>
+                                <tr style="border-bottom: 2px solid #333;">
+                                    <th style="padding: 10px; width: 40px; text-align: center;">#</th>
+                                    <th style="padding: 10px; text-align: left;">Name</th>
+                                    <th style="padding: 10px; width: 50px; text-align: center;">Tasks</th>
+                                </tr>
+                            </thead>
+                            <tbody id="usersStatsBody">
+                                <tr>
+                                    <td colspan="3" style="text-align: center; padding: 20px; color: #777;">Loading...
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Panel 3: History (Moved Here) -->
                 <div class="panel right-panel" style="width: 100%; max-width: none; min-width: 0;">
                     <div
                         style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
@@ -205,17 +234,13 @@
                     </div>
                     <div class="history-container">
                         <table id="historyTable"
-                            style="width: 100%; border-collapse: collapse; color: #eee; table-layout: fixed; font-size: 0.85rem;">
+                            style="width: 100%; border-collapse: collapse; color: #eee; font-size: 0.85rem;">
                             <thead>
                                 <tr style="border-bottom: 2px solid #333;">
-                                    <th style="padding: 10px; text-align: left; width: 80px;">Created</th>
-                                    <th style="padding: 10px; text-align: left; width: 25%;">Task</th>
-                                    <th style="padding: 10px; text-align: left; width: 20%;">Project</th>
-                                    <th style="padding: 10px; text-align: left; width: 90px;">Start</th>
-                                    <th style="padding: 10px; text-align: left; width: 90px;">Finish</th>
-                                    <th style="padding: 10px; text-align: center; width: 60px;">Hours</th>
-                                    <th style="padding: 10px; text-align: center; width: 50px;">Link</th>
-                                    <th style="padding: 10px; text-align: center; width: 40px;"></th>
+                                    <th style="padding: 8px; text-align: left; width: 50px;">Date</th>
+                                    <th style="padding: 8px; text-align: left;">Task</th>
+                                    <th style="padding: 8px; text-align: center; width: 40px;">Hr</th>
+                                    <th style="padding: 8px; text-align: center; width: 90px;">Action</th>
                                 </tr>
                             </thead>
                             <tbody id="historyBody">
@@ -228,51 +253,15 @@
                     </div>
                     <!-- Pagination Controls -->
                     <div id="paginationControls"
-                        style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px; font-size: 0.9rem; color: #888;">
-                        <span id="pageInfo">Showing 0-0 of 0</span>
-                        <div style="display: flex; gap: 10px;">
+                        style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px; font-size: 0.8rem; color: #888;">
+                        <span id="pageInfo">0-0/0</span>
+                        <div style="display: flex; gap: 5px;">
                             <button id="prevPageBtn" disabled
-                                style="background: transparent; border: 1px solid #444; color: var(--text-color); width: 32px; height: 32px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0;">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
-                                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                    stroke-linejoin="round">
-                                    <polyline points="15 18 9 12 15 6"></polyline>
-                                </svg>
-                            </button>
+                                style="width: 28px; height: 28px; border: 1px solid #444; background: transparent; color: #ccc; border-radius: 4px; padding:0; display:flex; align-items:center; justify-content:center;">&lt;</button>
                             <button id="nextPageBtn" disabled
-                                style="background: transparent; border: 1px solid #444; color: var(--text-color); width: 32px; height: 32px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0;">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
-                                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                    stroke-linejoin="round">
-                                    <polyline points="9 18 15 12 9 6"></polyline>
-                                </svg>
-                            </button>
+                                style="width: 28px; height: 28px; border: 1px solid #444; background: transparent; color: #ccc; border-radius: 4px; padding:0; display:flex; align-items:center; justify-content:center;">&gt;</button>
                         </div>
                     </div>
-                </div>
-            </div> <!-- End Left Column Wrapper -->
-
-            <!-- Stats Panel: Active Users -->
-            <div class="panel right-panel-users" style="min-width: 300px; display: flex; flex-direction: column;">
-                <div style="margin-bottom: 20px;">
-                    <h2>Ranking</h2>
-                </div>
-                <div class="users-stats-container" style="overflow-y: auto; flex: 1;">
-                    <table id="usersStatsTable"
-                        style="width: 100%; border-collapse: collapse; color: #eee; font-size: 0.9rem;">
-                        <thead>
-                            <tr style="border-bottom: 2px solid #333;">
-                                <th style="padding: 10px; width: 50px; text-align: center;">No.</th>
-                                <th style="padding: 10px; text-align: left;">Name</th>
-                                <th style="padding: 10px; width: 60px; text-align: center;">Tasks</th>
-                            </tr>
-                        </thead>
-                        <tbody id="usersStatsBody">
-                            <tr>
-                                <td colspan="3" style="text-align: center; padding: 20px; color: #777;">Loading...</td>
-                            </tr>
-                        </tbody>
-                    </table>
                 </div>
             </div>
         </div>

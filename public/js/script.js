@@ -155,19 +155,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     let currentHistoryPage = 1;
     const historyLimit = 5;
 
-    // Helper: Format Date YYYY-MM-DD -> DD-MM-YYYY
-    const formatDate = (dateString) => {
+    // Helper: Format Date YYYY-MM-DD -> DD/MM
+    const formatDateShort = (dateString) => {
         if (!dateString) return '-';
+        // Try to handle ISO string or YYYY-MM-DD
         const date = new Date(dateString);
-        if (isNaN(date.getTime())) return dateString; // Return original if invalid
+        if (isNaN(date.getTime())) return '-';
 
-        // Handle timezone offset if needed, or just split string if format is consistent
-        // Assuming input is YYYY-MM-DD
-        const parts = dateString.split('-');
-        if (parts.length === 3) {
-            return `${parts[2]}-${parts[1]}-${parts[0]}`;
-        }
-        return date.toLocaleDateString('en-GB').replace(/\//g, '-');
+        const d = date.getDate().toString().padStart(2, '0');
+        const m = (date.getMonth() + 1).toString().padStart(2, '0');
+        return `${d}/${m}`;
     };
 
     const loadHistory = async (page = 1) => {
@@ -179,7 +176,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         try {
             const response = await fetch(`/api/history?page=${page}&limit=${historyLimit}`);
             if (!response.ok) {
-                historyBody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px; color: #777;">Failed to load history.</td></tr>';
+                historyBody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px; color: #777;">Failed.</td></tr>';
                 return;
             }
 
@@ -188,8 +185,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             const pagination = result.pagination || { current: 1, totalItems: 0, totalPages: 1 };
 
             if (history.length === 0) {
-                historyBody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px; color: #777;">No recent tasks created.</td></tr>';
-                pageInfo.innerText = 'Showing 0-0 of 0';
+                historyBody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px; color: #777;">No data.</td></tr>';
+                pageInfo.innerText = '0-0/0';
                 prevPageBtn.disabled = true;
                 nextPageBtn.disabled = true;
                 return;
@@ -197,18 +194,21 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             historyBody.innerHTML = '';
             history.forEach(item => {
-                const createdAt = item.created_at ? new Date(item.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '-';
+                const dateStr = formatDateShort(item.created_at || item.start_date);
                 const row = document.createElement('tr');
                 row.innerHTML = `
-                    <td style="padding: 12px 10px; border-bottom: 1px solid #333; color: #aaa; font-size: 0.85rem;">${createdAt}</td>
-                    <td style="padding: 12px 10px; border-bottom: 1px solid #333; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${item.subject || ''}">${item.subject || '-'}</td>
-                    <td style="padding: 12px 10px; border-bottom: 1px solid #333; color: #aaa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${item.project_name || ''}">${item.project_name || '-'}</td>
-                    <td style="padding: 12px 10px; border-bottom: 1px solid #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${formatDate(item.start_date)}</td>
-                    <td style="padding: 12px 10px; border-bottom: 1px solid #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${formatDate(item.due_date)}</td>
-                    <td style="padding: 12px 10px; border-bottom: 1px solid #333; text-align: center;">${item.spent_hours ? item.spent_hours + ' h' : '-'}</td>
-                    <td style="padding: 12px 10px; border-bottom: 1px solid #333; text-align: center;"><a href="${item.web_url}" target="_blank" class="history-link" style="color: #FF8F00;">View</a></td>
-                    <td style="padding: 12px 10px; border-bottom: 1px solid #333; text-align: center;">
-                        <button class="delete-history-btn" data-id="${item.id}" data-op-id="${item.openproject_id}" data-subject="${item.subject}" style="background: #c62828; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.8rem;">✕</button>
+                    <td style="padding: 8px 5px; border-bottom: 1px solid #333; color: #aaa; font-size: 0.8rem;">${dateStr}</td>
+                    <td style="padding: 8px 5px; border-bottom: 1px solid #333; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100px;" title="${item.subject || ''}">${item.subject || '-'}</td>
+                    <td style="padding: 8px 5px; border-bottom: 1px solid #333; text-align: center; font-size: 0.8rem;">${item.spent_hours || '-'}</td>
+                    <td style="padding: 8px 5px; border-bottom: 1px solid #333; vertical-align: middle;">
+                        <div style="display: flex; justify-content: center; align-items: center; gap: 6px;">
+                             <a href="${item.web_url}" target="_blank" style="margin: 0; padding: 0; text-decoration: none; display: flex; align-items: center; justify-content: center; color: #aaa; transition: color 0.2s; width: 16px; height: 16px;" onmouseover="this.style.color='#FF8F00'" onmouseout="this.style.color='#aaa'" title="Open in OpenProject">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                             </a>
+                            <button class="delete-history-btn" data-id="${item.id}" data-op-id="${item.openproject_id}" data-subject="${item.subject}" style="margin: 0; padding: 0; background: transparent; color: #555; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: color 0.2s; width: 16px; height: 16px; min-width: auto;" onmouseover="this.style.color='#ef5350'" onmouseout="this.style.color='#555'" title="Delete">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                            </button>
+                        </div>
                     </td>
                 `;
                 historyBody.appendChild(row);
@@ -218,7 +218,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             currentHistoryPage = pagination.current;
             const startItem = (pagination.current - 1) * pagination.limit + 1;
             const endItem = Math.min(pagination.current * pagination.limit, pagination.totalItems);
-            pageInfo.innerText = `Showing ${startItem}-${endItem} of ${pagination.totalItems}`;
+            pageInfo.innerText = `${startItem}-${endItem}/${pagination.totalItems}`;
 
             prevPageBtn.disabled = pagination.current <= 1;
             nextPageBtn.disabled = pagination.current >= pagination.totalPages;
@@ -240,7 +240,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         } catch (error) {
             console.error('Error loading history:', error);
-            historyBody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px; color: #c62828;">Error loading history.</td></tr>';
+            historyBody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px; color: #c62828;">Error.</td></tr>';
         }
     };
 
@@ -269,7 +269,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 tr.className = `rank-row rank-${rank}`; // Helper class for CSS
 
                 let iconHtml = '';
-                let nameStyle = 'font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px;';
+                // Allow Full Name Display (Wrap text)
+                let nameStyle = 'font-weight: 500; white-space: normal; word-break: break-word; font-size: 0.9rem; line-height: 1.2;';
 
                 if (rank === 1) {
                     iconHtml = '<div class="rank-icon">👑</div>';
