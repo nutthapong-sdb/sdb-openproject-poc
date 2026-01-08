@@ -948,8 +948,10 @@ app.post('/api/sync-users', async (req, res) => {
 
         db.serialize(() => {
             db.run("BEGIN TRANSACTION");
-            const stmt = db.prepare("INSERT OR REPLACE INTO local_assignees (id, name, openproject_id) VALUES (?, ?, ?)");
-            uniqueUsers.forEach(u => stmt.run(u.id, u.name, u.id));
+            // Use UPSERT to update name if user exists, or insert new if not. 
+            // id column is AUTOINCREMENT, rely on openproject_id uniqueness.
+            const stmt = db.prepare("INSERT INTO local_assignees (name, openproject_id) VALUES (?, ?) ON CONFLICT(openproject_id) DO UPDATE SET name=excluded.name");
+            uniqueUsers.forEach(u => stmt.run(u.name, u.id));
             stmt.finalize();
             db.run("COMMIT");
         });
