@@ -9,7 +9,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             const userData = await userRes.json();
             currentUserId = userData.id; // Store user ID
             const displayName = userData.firstName ? `${userData.firstName} ${userData.lastName}` : (userData.name || 'User');
-            document.getElementById('userNameDisplay').textContent = displayName;
+            // Show OpenProject ID in header
+            document.getElementById('userNameDisplay').textContent = `${displayName} (${userData.id})`;
 
             // Show Settings (with Admin Panel inside) only for admin role
             if (userData.role === 'admin') {
@@ -79,7 +80,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             assigneeSelect.empty().append('<option value="" disabled selected>Select an Assignee</option>');
 
             users.forEach(user => {
-                const option = new Option(user.name, user.id, false, false);
+                // Format: "ID - Name"
+                const text = user.openproject_id ? `${user.openproject_id} - ${user.name}` : user.name;
+                const option = new Option(text, user.id, false, false);
                 assigneeSelect.append(option);
             });
 
@@ -92,7 +95,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                     if (meRes.ok) {
                         const me = await meRes.json();
                         const myName = me.name || (me.firstName + ' ' + me.lastName);
-                        const match = users.find(u => u.name === myName);
+
+                        // Fix: Try to match by OpenProject ID first, then by Name
+                        const match = users.find(u => (u.openproject_id && u.openproject_id == me.id) || u.name === myName);
+
                         if (match) {
                             assigneeSelect.val(match.id).trigger('change');
                         }
