@@ -120,6 +120,9 @@ async function puppeteerFetch(url, options = {}, specificApiKey = null, timeoutM
             }
         }, url, options, authString, timeoutMs);
 
+        if (result.status >= 400) {
+            console.log('[puppeteerFetch] Error Data:', JSON.stringify(result.data).substring(0, 500));
+        }
         console.log('[puppeteerFetch] Result status:', result.status, 'error:', result.error || 'none');
         return result;
 
@@ -360,7 +363,7 @@ app.get('/api/projects', (req, res) => {
 
     if (search) {
         query += " WHERE name LIKE ?";
-        params.push(`% ${search}% `);
+        params.push(`%${search}%`);
     }
 
     query += " ORDER BY name ASC";
@@ -388,7 +391,7 @@ app.post('/api/login', async (req, res) => {
 
     try {
         // Use puppeteerFetch to verify (Bypasses Cloudflare)
-        const result = await puppeteerFetch(`${HOST} /api/v3 / users / me`, {
+        const result = await puppeteerFetch(`${HOST}/api/v3/users/me`, {
             method: 'GET'
         }, apikey);
 
@@ -743,8 +746,8 @@ app.post('/api/work_packages', async (req, res) => {
         const url = `${HOST}/api/v3/projects/${projectId}/work_packages`;
 
         const payload = {
-            subject: subject,
-            description: { raw: description || "" }, // Add Description
+            subject: subject.trim(),
+            description: { raw: description ? description.trim() : "" }, // Add Description
             percentageDone: parseInt(percentageDone) || 0,
             startDate: startDate || null,
             dueDate: dueDate || null,
