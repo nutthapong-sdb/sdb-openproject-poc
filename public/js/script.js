@@ -665,22 +665,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('todayBtn').addEventListener('click', () => {
         const today = new Date().toISOString().split('T')[0];
         document.getElementById('startDate').value = today;
+        // Auto-sync to finish date
+        document.getElementById('dueDate').value = today;
     });
 
-    // Same Date Button
-    document.getElementById('sameDateBtn').addEventListener('click', () => {
-        const startDate = document.getElementById('startDate').value;
+    // Auto-sync Finish Date when Start Date changes
+    document.getElementById('startDate').addEventListener('change', (e) => {
+        const startDate = e.target.value;
         if (startDate) {
             document.getElementById('dueDate').value = startDate;
-        } else {
-            Swal.fire({
-                icon: 'info',
-                text: 'Please select a Start Date first.',
-                toast: true,
-                position: 'top-end',
-                showConfirmButton: false,
-                timer: 3000
-            });
         }
     });
 
