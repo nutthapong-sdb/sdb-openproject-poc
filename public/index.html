@@ -68,7 +68,7 @@
                     style="color: var(--text-color); font-weight: 500; font-size: 1rem; margin-right: 10px;">Loading...</span>
 
                 <!-- Settings Dropdown -->
-                <div style="position: relative;">
+                <div id="settingsWrapper" style="position: relative; display: none;">
                     <button id="settingsBtn"
                         style="background: transparent; border: none; color: #ccc; cursor: pointer; padding: 5px; display: flex; align-items: center; justify-content: center;">
                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
@@ -80,19 +80,20 @@
                         </svg>
                     </button>
                     <div id="settingsDropdown"
-                        style="display: none; position: absolute; right: 0; top: 100%; background: #333; border: 1px solid #444; border-radius: 6px; padding: 5px; min-width: 150px; z-index: 1000; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
+                        style="display: none; position: absolute; right: 0; top: 100%; background: #333; border: 1px solid #444; border-radius: 6px; padding: 5px; min-width: 180px; z-index: 1000; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
                         <button id="syncUsersBtn"
                             style="background: transparent; border: none; color: #eee; width: 100%; text-align: left; padding: 8px 12px; cursor: pointer; border-radius: 4px; font-size: 0.9rem;">Sync
                             Users</button>
                         <button id="syncProjectsBtn"
                             style="background: transparent; border: none; color: #eee; width: 100%; text-align: left; padding: 8px 12px; cursor: pointer; border-radius: 4px; font-size: 0.9rem;">Sync
                             Projects</button>
+                        <hr style="border: none; border-top: 1px solid #444; margin: 5px 0;">
+                        <button id="adminPanelBtn"
+                            style="background: transparent; border: none; color: #eee; width: 100%; text-align: left; padding: 8px 12px; cursor: pointer; border-radius: 4px; font-size: 0.9rem; font-weight: 600;">Admin
+                            Panel</button>
                     </div>
                 </div>
 
-                <button id="adminBtn"
-                    style="padding: 8px 15px; background: #9c27b0; color: white; border: none; border-radius: 4px; cursor: pointer; display: none;">Admin
-                    Panel</button>
                 <button id="logoutBtn"
                     style="width: auto; padding: 8px 20px; background-color: var(--primary-color); color: #000; font-weight: 600; border: none; border-radius: 8px; cursor: pointer; font-size: 0.9rem;">Sign
                     Out</button>
@@ -259,6 +260,36 @@
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Admin Panel Modal -->
+    <div id="adminModal"
+        style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; overflow-y: auto;">
+        <div
+            style="max-width: 900px; margin: 50px auto; background: #2a2a2a; border-radius: 8px; padding: 30px; box-shadow: 0 8px 16px rgba(0,0,0,0.4);">
+            <div
+                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px solid #444; padding-bottom: 15px;">
+                <h2 style="margin: 0; color: #fff; font-size: 1.5rem;">🔐 User Management</h2>
+                <button id="closeAdminModal"
+                    style="background: transparent; border: none; color: #fff; font-size: 1.8rem; cursor: pointer; padding: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">&times;</button>
+            </div>
+            <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
+                <thead>
+                    <tr style="background: #333; color: #fff;">
+                        <th style="padding: 12px; text-align: left; border-bottom: 2px solid #444;">ID</th>
+                        <th style="padding: 12px; text-align: left; border-bottom: 2px solid #444;">Username</th>
+                        <th style="padding: 12px; text-align: left; border-bottom: 2px solid #444;">Name</th>
+                        <th style="padding: 12px; text-align: left; border-bottom: 2px solid #444;">Role</th>
+                        <th style="padding: 12px; text-align: center; border-bottom: 2px solid #444;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="userListBody">
+                    <tr>
+                        <td colspan="5" style="text-align: center; padding: 20px; color: #777;">Loading...</td>
+                    </tr>
+                </tbody>
+            </table>
         </div>
     </div>
 

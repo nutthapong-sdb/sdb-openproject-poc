@@ -11,9 +11,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             const displayName = userData.firstName ? `${userData.firstName} ${userData.lastName}` : (userData.name || 'User');
             document.getElementById('userNameDisplay').textContent = displayName;
 
-            // Show Admin Button if role is admin
+            // Show Settings (with Admin Panel inside) only for admin role
             if (userData.role === 'admin') {
-                $('#adminBtn').show();
+                $('#settingsWrapper').show();
             }
         }
     } catch (e) {
@@ -798,8 +798,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadUserStats(); // Initial Load Stats
 
     // --- Admin Panel Logic ---
-    $('#adminBtn').click(openAdminPanel);
-    $('.close-modal').click(() => $('#adminModal').fadeOut());
+    $('#adminPanelBtn').click(openAdminPanel);
+    $('.close-modal, #closeAdminModal').click(() => $('#adminModal').fadeOut());
 
     // Close modal when clicking outside
     $(window).click((event) => {
@@ -811,7 +811,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     async function openAdminPanel() {
         $('#adminModal').fadeIn();
         const tbody = $('#userListBody');
-        tbody.html('<tr><td colspan="5" style="text-align:center; padding: 20px;">Loading users...</td></tr>');
+        tbody.html('<tr><td colspan="6" style="text-align:center; padding: 20px;">Loading users...</td></tr>');
 
         try {
             const res = await fetch('/api/admin/users');
@@ -820,15 +820,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             tbody.empty();
             users.forEach(u => {
+                const displayId = u.openproject_id || u.id;
                 const tr = `
                     <tr style="border-bottom: 1px solid #444;">
-                        <td style="padding: 10px;">${u.id}</td>
+                        <td style="padding: 10px;">${displayId}</td>
                         <td style="padding: 10px;">${u.username}</td>
                         <td style="padding: 10px;">${u.name}</td>
                         <td style="padding: 10px;">
                             <span style="background: ${u.role === 'admin' ? '#9c27b0' : '#444'}; padding: 2px 8px; border-radius: 4px; font-size: 0.8em; color: white;">${u.role}</span>
                         </td>
-                        <td style="padding: 10px;">
+                        <td style="padding: 10px; text-align: center;">
+                            <button onclick="window.editUser(${u.id}, '${u.username}', '${u.name}')" style="background: #4CAF50; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; margin-right: 5px;">Edit</button>
                             <button onclick="window.resetUserPassword(${u.id}, '${u.username}')" style="background: #e57373; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">Reset Pwd</button>
                         </td>
                     </tr>
@@ -836,24 +838,95 @@ document.addEventListener('DOMContentLoaded', async () => {
                 tbody.append(tr);
             });
         } catch (e) {
-            tbody.html(`<tr><td colspan="5" style="color: #ff5252; text-align:center; padding: 20px;">Error: ${e.message}</td></tr>`);
+            tbody.html(`<tr><td colspan="6" style="color: #ff5252; text-align:center; padding: 20px;">Error: ${e.message}</td></tr>`);
         }
     }
 
+    // Expose edit function to global scope
+    window.editUser = async (id, username, name) => {
+        const result = await Swal.fire({
+            title: 'Edit User',
+            html:
+                `<div style="display: flex; flex-direction: column; gap: 10px;">
+                    <input id="swal-username" class="swal2-input" placeholder="Username" value="${username}" style="margin: 0;">
+                    <input id="swal-name" class="swal2-input" placeholder="Full Name" value="${name}" style="margin: 0;">
+                </div>`,
+            focusConfirm: false,
+            showCancelButton: true,
+            confirmButtonText: 'Save',
+            confirmButtonColor: '#4CAF50',
+            preConfirm: () => {
+                const newUsername = document.getElementById('swal-username').value;
+                const newName = document.getElementById('swal-name').value;
+                if (!newUsername || !newName) {
+                    Swal.showValidationMessage('Both fields are required');
+                    return false;
+                }
+                return { username: newUsername, name: newName };
+            }
+        });
+
+        if (result.isConfirmed) {
+            try {
+                const res = await fetch(`/api/admin/users/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(result.value)
+                });
+                if (res.ok) {
+                    Swal.fire('Success', 'User updated successfully!', 'success');
+                    openAdminPanel(); // Refresh the list
+                } else {
+                    const error = await res.json();
+                    Swal.fire('Error', error.error || 'Failed to update user', 'error');
+                }
+            } catch (e) {
+                Swal.fire('Error', e.message, 'error');
+            }
+        }
+    };
+
     // Expose reset function to global scope so onclick can see it
     window.resetUserPassword = async (id, username) => {
-        const newPwd = prompt(`Enter new password for ${username}:`);
-        if (newPwd) {
+        const result = await Swal.fire({
+            title: 'Reset Password',
+            html: `<div style="display: flex; flex-direction: column; gap: 10px;">
+                    <p style="margin: 0 0 10px 0; color: #ccc;">Enter new password for <strong>${username}</strong>:</p>
+                    <input id="swal-password" type="password" class="swal2-input" placeholder="New Password" style="margin: 0;">
+                </div>`,
+            focusConfirm: false,
+            showCancelButton: true,
+            confirmButtonText: 'Reset Password',
+            confirmButtonColor: '#e57373',
+            preConfirm: () => {
+                const newPwd = document.getElementById('swal-password').value;
+                if (!newPwd) {
+                    Swal.showValidationMessage('Password is required');
+                    return false;
+                }
+                if (newPwd.length < 6) {
+                    Swal.showValidationMessage('Password must be at least 6 characters');
+                    return false;
+                }
+                return newPwd;
+            }
+        });
+
+        if (result.isConfirmed) {
             try {
                 const res = await fetch(`/api/admin/users/${id}/reset-password`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ newPassword: newPwd })
+                    body: JSON.stringify({ newPassword: result.value })
                 });
-                if (res.ok) alert('Password updated successfully!');
-                else alert('Failed: ' + (await res.json()).error);
+                if (res.ok) {
+                    Swal.fire('Success', 'Password updated successfully!', 'success');
+                } else {
+                    const error = await res.json();
+                    Swal.fire('Error', error.error || 'Failed to reset password', 'error');
+                }
             } catch (e) {
-                alert('Error: ' + e.message);
+                Swal.fire('Error', e.message, 'error');
             }
         }
     };

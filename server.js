@@ -456,6 +456,11 @@ app.post('/api/login', async (req, res) => {
                 }
 
                 // Set Cookies
+                res.cookie('sdb_session', dbUser.id.toString(), {
+                    httpOnly: true,
+                    secure: false,
+                    maxAge: 30 * 24 * 60 * 60 * 1000
+                });
                 res.cookie('user_apikey', apikey, {
                     httpOnly: true,
                     secure: false,
@@ -1069,43 +1074,66 @@ app.post('/api/register', async (req, res) => {
 
 // --- Admin Endpoints ---
 
-// Get All Users (Admin Only)
+// Get All Users (All logged-in users can access)
 app.get('/api/admin/users', (req, res) => {
     const localUserId = req.cookies.sdb_session;
     if (!localUserId) return res.status(401).json({ error: "Unauthorized" });
 
-    db.get("SELECT role FROM users WHERE id = ?", [localUserId], (err, row) => {
-        if (err || !row || row.role !== 'admin') {
-            return res.status(403).json({ error: "Forbidden. Admin access required." });
-        }
-        db.all("SELECT id, username, name, role, created_at FROM users ORDER BY id DESC", [], (err, rows) => {
-            if (err) return res.status(500).json({ error: err.message });
-            res.json(rows);
-        });
+    // Allow all logged-in users to view user list
+    db.all("SELECT id, username, name, role, openproject_id, created_at FROM users ORDER BY id DESC", [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
     });
 });
 
-// Reset User Password (Admin Only)
-app.post('/api/admin/users/:id/reset-password', (req, res) => {
+// Reset User Password (All logged-in users can access)
+app.post('/api/admin/users/:id/reset-password', async (req, res) => {
     const targetId = req.params.id;
     const { newPassword } = req.body;
     const localUserId = req.cookies.sdb_session;
 
+    if (!localUserId) return res.status(401).json({ error: "Unauthorized" });
     if (!newPassword) return res.status(400).json({ error: "New password is required" });
 
-    db.get("SELECT role FROM users WHERE id = ?", [localUserId], async (err, row) => {
-        if (err || !row || row.role !== 'admin') {
-            return res.status(403).json({ error: "Forbidden" });
-        }
-        try {
-            const hashedPassword = await bcrypt.hash(newPassword, 10);
-            db.run("UPDATE users SET password = ? WHERE id = ?", [hashedPassword, targetId], function (err) {
-                if (err) return res.status(500).json({ error: err.message });
-                res.json({ message: "Password updated successfully" });
-            });
-        } catch (e) {
-            res.status(500).json({ error: "Error hashing password" });
-        }
+    try {
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+        db.run("UPDATE users SET password = ? WHERE id = ?", [hashedPassword, targetId], function (err) {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ message: "Password updated successfully" });
+        });
+    } catch (e) {
+        res.status(500).json({ error: "Error hashing password" });
+    }
+});
+
+// Update User Info (All logged-in users can access)
+app.put('/api/admin/users/:id', (req, res) => {
+    const targetId = req.params.id;
+    const { username, name } = req.body;
+    const localUserId = req.cookies.sdb_session;
+
+    if (!localUserId) return res.status(401).json({ error: "Unauthorized" });
+    if (!username && !name) return res.status(400).json({ error: "Username or name is required" });
+
+    // Build dynamic update query
+    let updates = [];
+    let params = [];
+
+    if (username) {
+        updates.push("username = ?");
+        params.push(username);
+    }
+    if (name) {
+        updates.push("name = ?");
+        params.push(name);
+    }
+
+    params.push(targetId);
+    const query = `UPDATE users SET ${updates.join(", ")} WHERE id = ?`;
+
+    db.run(query, params, function (err) {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ message: "User updated successfully" });
     });
 });
 
