@@ -707,6 +707,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         let assigneeId = $('#assigneeId').val();
         const typeId = $('#taskType').val(); // Get Type ID
         const subject = document.getElementById('taskName').value;
+        const description = document.getElementById('taskDescription').value; // Get Description
 
         // Auto-Assign Self if empty
         if (!assigneeId) {
@@ -755,12 +756,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                 body: JSON.stringify({
                     projectId,
                     subject,
-                    typeId, // Send Type ID
+                    description,
+                    typeId,
                     assigneeId,
                     startDate,
                     dueDate,
                     percentageDone,
-                    spentHours // Send to backend
+                    spentHours
                 })
             });
 

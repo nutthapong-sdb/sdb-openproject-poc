@@ -712,7 +712,7 @@ app.delete('/api/history/:id', (req, res) => {
 
 // API to create Work Package
 app.post('/api/work_packages', async (req, res) => {
-    const { projectId, subject, assigneeId, typeId, startDate, dueDate, percentageDone, spentHours } = req.body;
+    const { projectId, subject, description, assigneeId, typeId, startDate, dueDate, percentageDone, spentHours } = req.body;
     const userApiKey = req.cookies.user_apikey; // Get user's API key from login session
 
     if (!userApiKey) {
@@ -744,6 +744,7 @@ app.post('/api/work_packages', async (req, res) => {
 
         const payload = {
             subject: subject,
+            description: { raw: description || "" }, // Add Description
             percentageDone: parseInt(percentageDone) || 0,
             startDate: startDate || null,
             dueDate: dueDate || null,
