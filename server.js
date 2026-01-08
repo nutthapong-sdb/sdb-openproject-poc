@@ -423,7 +423,7 @@ app.post('/api/login', async (req, res) => {
             console.log(`Login successful for ${user.name}(ID: ${user.id})`);
 
             // Sync Projects (All accessible)
-            await syncAllProjects(apikey);
+            // await syncAllProjects(apikey); // Disabled by user request
 
             res.json({
                 message: 'Login successful',
