@@ -2,7 +2,6 @@
 FROM node:20
 
 # Install Chromium and necessary fonts
-# This works for both amd64 (Intel) and arm64 (Apple Silicon)
 RUN apt-get update && apt-get install -y \
     chromium \
     fonts-thai-tlwg \
@@ -16,11 +15,10 @@ RUN apt-get update && apt-get install -y \
 # Set working directory
 WORKDIR /app
 
-# Copy package files first (for better layer caching)
+# Copy package files first
 COPY package*.json ./
 
 # Install npm dependencies
-# Use npm ci for reproducible builds and --only=production for smaller image
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 RUN npm ci --only=production
 
@@ -30,10 +28,10 @@ COPY . .
 # Create non-root user for security
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
-# Ensure the database file exists and set proper ownership
-RUN touch projects.db && chown appuser:appuser projects.db && chmod 644 projects.db
+# Create data directory for Named Volume and set ownership
+RUN mkdir -p /app/data && chown -R appuser:appuser /app/data
 
-# Change ownership of app directory to non-root user
+# Change ownership of app directory
 RUN chown -R appuser:appuser /app
 
 # Switch to non-root user
@@ -42,8 +40,8 @@ USER appuser
 # Expose port 3001
 EXPOSE 3001
 
-# Tell Puppeteer to use the installed Chromium
-# The path is /usr/bin/chromium in Debian
+# Default DB Path (can be overridden by Env Var)
+ENV DB_FILE=/app/data/projects.db
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 # Add health check

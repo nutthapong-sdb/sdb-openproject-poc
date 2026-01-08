@@ -224,7 +224,8 @@ const sqlite3 = require('sqlite3').verbose();
 const fs = require('fs');
 
 // Initialize SQLite Database
-const dbFile = './projects.db';
+const dbFile = process.env.DB_FILE || './projects.db';
+console.log(`Database file should be at: ${require('path').resolve(dbFile)}`);
 const db = new sqlite3.Database(dbFile);
 
 // Create table if not exists
