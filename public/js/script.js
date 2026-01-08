@@ -692,22 +692,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
 
             if (response.ok) {
-                // Toast Notification
-                const Toast = Swal.mixin({
-                    toast: true,
-                    position: 'top-end',
-                    showConfirmButton: false,
-                    timer: 5000,
-                    timerProgressBar: true,
-                    didOpen: (toast) => {
-                        toast.addEventListener('mouseenter', Swal.stopTimer)
-                        toast.addEventListener('mouseleave', Swal.resumeTimer)
-                    },
-                    customClass: {
-                        popup: 'colored-toast'
-                    }
-                });
-
                 let title = 'Task Created Successfully!';
                 if (result.timeLogged) {
                     title = 'Task & Time Logged!';
@@ -718,14 +702,22 @@ document.addEventListener('DOMContentLoaded', async () => {
                         title: 'Task Created, but...',
                         text: result.timeError,
                         footer: `<a href="${result.webUrl}" target="_blank">Open Task</a>`
+                    }).then(() => {
+                        location.reload();
                     });
-                    return; // Stop here to let user see modal
+                    return;
                 }
 
-                Toast.fire({
+                // Show Success Modal and Reload
+                Swal.fire({
                     icon: 'success',
                     title: title,
-                    html: `<a href="${result.webUrl}" target="_blank" style="color: #333; text-decoration: underline;">View Work Package #${result.id}</a>`
+                    html: `Task <b>#${result.id}</b> created.<br><a href="${result.webUrl}" target="_blank" style="color: var(--primary-color);">Click to view in OpenProject</a>`,
+                    confirmButtonText: 'OK, New Task',
+                    allowOutsideClick: false
+                }).then(() => {
+                    // Refresh the page to reset form
+                    location.reload();
                 });
 
                 // Update History
