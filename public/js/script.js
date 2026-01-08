@@ -10,6 +10,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             currentUserId = userData.id; // Store user ID
             const displayName = userData.firstName ? `${userData.firstName} ${userData.lastName}` : (userData.name || 'User');
             document.getElementById('userNameDisplay').textContent = displayName;
+
+            // Show Admin Button if role is admin
+            if (userData.role === 'admin') {
+                $('#adminBtn').show();
+            }
         }
     } catch (e) {
         console.error('Failed to load user info', e);
@@ -919,4 +924,66 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
     loadHistory(); // Initial Load History
     loadUserStats(); // Initial Load Stats
+
+    // --- Admin Panel Logic ---
+    $('#adminBtn').click(openAdminPanel);
+    $('.close-modal').click(() => $('#adminModal').fadeOut());
+
+    // Close modal when clicking outside
+    $(window).click((event) => {
+        if (event.target.id === 'adminModal') {
+            $('#adminModal').fadeOut();
+        }
+    });
+
+    async function openAdminPanel() {
+        $('#adminModal').fadeIn();
+        const tbody = $('#userListBody');
+        tbody.html('<tr><td colspan="5" style="text-align:center; padding: 20px;">Loading users...</td></tr>');
+
+        try {
+            const res = await fetch('/api/admin/users');
+            if (!res.ok) throw new Error((await res.json()).error || 'Failed to load users');
+            const users = await res.json();
+
+            tbody.empty();
+            users.forEach(u => {
+                const tr = `
+                    <tr style="border-bottom: 1px solid #444;">
+                        <td style="padding: 10px;">${u.id}</td>
+                        <td style="padding: 10px;">${u.username}</td>
+                        <td style="padding: 10px;">${u.name}</td>
+                        <td style="padding: 10px;">
+                            <span style="background: ${u.role === 'admin' ? '#9c27b0' : '#444'}; padding: 2px 8px; border-radius: 4px; font-size: 0.8em; color: white;">${u.role}</span>
+                        </td>
+                        <td style="padding: 10px;">
+                            <button onclick="window.resetUserPassword(${u.id}, '${u.username}')" style="background: #e57373; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">Reset Pwd</button>
+                        </td>
+                    </tr>
+                `;
+                tbody.append(tr);
+            });
+        } catch (e) {
+            tbody.html(`<tr><td colspan="5" style="color: #ff5252; text-align:center; padding: 20px;">Error: ${e.message}</td></tr>`);
+        }
+    }
+
+    // Expose reset function to global scope so onclick can see it
+    window.resetUserPassword = async (id, username) => {
+        const newPwd = prompt(`Enter new password for ${username}:`);
+        if (newPwd) {
+            try {
+                const res = await fetch(`/api/admin/users/${id}/reset-password`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ newPassword: newPwd })
+                });
+                if (res.ok) alert('Password updated successfully!');
+                else alert('Failed: ' + (await res.json()).error);
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        }
+    };
+
 });

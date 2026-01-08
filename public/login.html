@@ -12,63 +12,170 @@
 </head>
 
 <body style="flex-direction: column; justify-content: center; align-items: center; min-height: 100vh; padding: 0;">
+
+
     <div class="panel" style="max-width: 450px; text-align: center; width: 100%; flex: none; height: auto;">
-        <header>
-            <h1>Sign in</h1>
-            <p>OpenProject Helper for Softdebut</p>
+        <header id="mainHeader">
+            <h1 id="pageTitle" style="margin-bottom: 5px;">Sign in</h1>
+            <p id="pageSubtitle" style="color: #888; margin-bottom: 20px;">OpenProject Helper by Softdebut Teams</p>
         </header>
 
-        <form id="loginForm" style="margin-top: 5px;">
+        <!-- Login Form -->
+        <form id="loginForm" style="text-align: left;">
             <div class="form-group">
-                <label for="apikey" style="display:block; margin-bottom: 10px; color: #ccc;">OpenProject API Key</label>
-                <input type="password" id="apikey" class="form-control" placeholder="Paste API Key here..." required
-                    style="text-align: center; font-size: 1.1rem; padding: 15px; font-family: monospace; letter-spacing: 1px;">
-                <small style="display: block; margin-top: 10px; color: #666; font-size: 0.8rem;">
-                    Go to <b>My Account > Access Tokens</b> to generate one.
+                <label for="loginUsername">Username</label>
+                <input type="text" id="loginUsername" placeholder="Username" required
+                    style="width: 100%; padding: 12px; background: #2a2a2a; border: 1px solid #444; color: white; border-radius: 4px;">
+            </div>
+            <div class="form-group">
+                <label for="loginPassword">Password</label>
+                <input type="password" id="loginPassword" placeholder="Password" required
+                    style="width: 100%; padding: 12px; background: #2a2a2a; border: 1px solid #444; color: white; border-radius: 4px;">
+            </div>
+
+            <button type="submit" id="loginBtn" style="margin-top: 20px; width: 100%;">
+                <span id="loginBtnText">Sign In</span>
+                <div id="loginBtnLoader" class="loader"></div>
+            </button>
+            <p style="margin-top: 15px; text-align: center; font-size: 0.9rem; color: #888;">
+                Don't have an account? <a href="#" id="showRegister" style="color: var(--primary-color);">Register</a>
+            </p>
+        </form>
+
+        <!-- Register Form (Hidden by default) -->
+        <form id="registerForm" style="text-align: left; display: none;">
+            <div style="display: flex; gap: 10px;">
+                <div class="form-group" style="flex: 1;">
+                    <label for="name">Name</label>
+                    <input type="text" id="name" placeholder="Full Name" required
+                        style="width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid #444; color: white; border-radius: 4px;">
+                </div>
+                <div class="form-group" style="flex: 1;">
+                    <label for="username">Username</label>
+                    <input type="text" id="username" placeholder="Username" required
+                        style="width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid #444; color: white; border-radius: 4px;">
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 10px;">
+                <div class="form-group" style="flex: 1;">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" placeholder="Password" required
+                        style="width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid #444; color: white; border-radius: 4px;">
+                </div>
+                <div class="form-group" style="flex: 1;">
+                    <label for="confirmPassword">Confirm Password</label>
+                    <input type="password" id="confirmPassword" placeholder="Confirm" required
+                        style="width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid #444; color: white; border-radius: 4px;">
+                </div>
+            </div>
+
+            <div class="form-group" style="margin-top: 15px; border-top: 1px solid #444; padding-top: 15px;">
+                <label for="apikey" style="color: #FF8F00;">OpenProject API Key</label>
+                <input type="password" id="apikey" placeholder="Paste API Key here..." required
+                    style="width: 100%; padding: 12px; font-family: monospace; background: #2a2a2a; border: 1px solid #444; color: white; border-radius: 4px; letter-spacing: 1px;">
+                <small style="display: block; margin-top: 5px; color: #666; font-size: 0.75rem;">
+                    My Account > Access Tokens
                 </small>
             </div>
 
-            <button type="submit" id="loginBtn" style="margin-top: 20px;">
-                <span id="btnText">Connect</span>
-                <div id="btnLoader" class="loader"></div>
+            <button type="submit" id="regBtn" style="margin-top: 20px; width: 100%;">
+                <span id="regBtnText">Register</span>
+                <div id="regBtnLoader" class="loader"></div>
             </button>
+            <p style="margin-top: 15px; text-align: center; font-size: 0.9rem; color: #888;">
+                Already have an account? <a href="#" id="showLogin" style="color: var(--primary-color);">Sign In</a>
+            </p>
         </form>
     </div>
 
     <script>
         $(document).ready(function () {
-            // Check if already logged in
-            fetch('/api/user').then(res => {
-                if (res.ok) window.location.href = '/';
+            // Check if already logged in - DISABLED FOR NOW
+            // fetch('/api/user').then(res => {
+            //     if (res.ok) window.location.href = '/';
+            // });
+
+            // Toggle Forms
+            $('#showRegister').on('click', function (e) {
+                e.preventDefault();
+                $('#loginForm').fadeOut(200, function () {
+                    $('#registerForm').fadeIn(200);
+                    $('#pageTitle').text('Register');
+                });
             });
 
+            $('#showLogin').on('click', function (e) {
+                e.preventDefault();
+                $('#registerForm').fadeOut(200, function () {
+                    $('#loginForm').fadeIn(200);
+                    $('#pageTitle').text('Sign in');
+                });
+            });
+
+            // LOGIN SUBMIT
             $('#loginForm').on('submit', async function (e) {
                 e.preventDefault();
+                const username = $('#loginUsername').val().trim();
+                const password = $('#loginPassword').val();
 
-                const apikey = $('#apikey').val();
-                if (!apikey) {
-                    Swal.fire('Error', 'Please enter your API Key', 'error');
-                    return;
-                }
-
-                // UI Loading State
                 $('#loginBtn').prop('disabled', true);
-                $('#btnText').hide();
-                $('#btnLoader').show();
+                $('#loginBtnText').hide();
+                $('#loginBtnLoader').show();
 
                 try {
                     const res = await fetch('/api/login', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ apikey })
+                        body: JSON.stringify({ username, password })
+                    });
+                    const data = await res.json();
+                    if (res.ok) {
+                        window.location.href = '/';
+                    } else {
+                        Swal.fire('Login Failed', data.error || 'Invalid credentials', 'error');
+                    }
+                } catch (err) {
+                    Swal.fire('Error', 'Connection failed', 'error');
+                } finally {
+                    $('#loginBtn').prop('disabled', false);
+                    $('#loginBtnText').show();
+                    $('#loginBtnLoader').hide();
+                }
+            });
+
+            // REGISTER SUBMIT
+            $('#registerForm').on('submit', async function (e) {
+                e.preventDefault();
+
+                const name = $('#name').val().trim();
+                const username = $('#username').val().trim();
+                const password = $('#password').val();
+                const confirmPassword = $('#confirmPassword').val();
+                const apikey = $('#apikey').val().trim();
+
+                if (password !== confirmPassword) {
+                    Swal.fire('Error', 'Passwords do not match', 'error');
+                    return;
+                }
+
+                $('#regBtn').prop('disabled', true);
+                $('#regBtnText').hide();
+                $('#regBtnLoader').show();
+
+                try {
+                    const res = await fetch('/api/register', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name, username, password, apikey })
                     });
 
                     const data = await res.json();
 
                     if (res.ok) {
                         Swal.fire({
-                            title: 'Connected!',
-                            text: `Welcome, ${data.user.name}`,
+                            title: 'Registered!',
+                            text: `Welcome, ${data.user.name}.`,
                             icon: 'success',
                             timer: 1500,
                             showConfirmButton: false
@@ -76,15 +183,15 @@
                             window.location.href = '/';
                         });
                     } else {
-                        Swal.fire('Login Failed', data.error || 'Unknown error', 'error');
+                        Swal.fire('Registration Failed', data.error || 'Unknown error', 'error');
                     }
                 } catch (err) {
                     console.error(err);
                     Swal.fire('Error', 'Failed to connect to server.', 'error');
                 } finally {
-                    $('#loginBtn').prop('disabled', false);
-                    $('#btnText').show();
-                    $('#btnLoader').hide();
+                    $('#regBtn').prop('disabled', false);
+                    $('#regBtnText').show();
+                    $('#regBtnLoader').hide();
                 }
             });
         });

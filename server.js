@@ -4,6 +4,7 @@ const bodyParser = require('body-parser');
 const cookieParser = require('cookie-parser');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+const bcrypt = require('bcrypt');
 
 puppeteer.use(StealthPlugin());
 
@@ -12,6 +13,16 @@ const PORT = process.env.PORT || 3001;
 
 app.use(bodyParser.json());
 app.use(cookieParser());
+
+// Helper to check session
+function getSession(req) {
+    const apiKey = req.cookies.user_apikey;
+    // We can also check sdb_session or user_id
+    if (apiKey) {
+        return { isValid: true, apiKey };
+    }
+    return { isValid: false };
+}
 
 // Intercept Login Page: Redirect if already logged in
 app.get(['/login.html', '/login'], (req, res, next) => {
@@ -379,68 +390,107 @@ app.get('/api/projects', (req, res) => {
 
 // --- Auth Endpoints ---
 app.post('/api/login', async (req, res) => {
-    let { apikey } = req.body;
+    let { username, password } = req.body;
 
-    if (!apikey) {
-        return res.status(400).json({ error: 'API Key is required' });
+    if (!username || !password) {
+        return res.status(400).json({ error: 'Username and Password are required' });
     }
 
-    apikey = apikey.trim();
-
-    console.log(`Verifying API Key against ${HOST} (handling Cloudflare)...`);
-
-    try {
-        // Use puppeteerFetch to verify (Bypasses Cloudflare)
-        const result = await puppeteerFetch(`${HOST}/api/v3/users/me`, {
-            method: 'GET'
-        }, apikey);
-
-        if (result.status >= 200 && result.status < 300) {
-            let user = result.data;
-            if (typeof user === 'string') {
-                try { user = JSON.parse(user); } catch (e) { }
-            }
-
-            console.log(`Login successful for: ${user.name} `);
-
-            // Set HTTP-Only Cookie
-            res.cookie('user_apikey', apikey, {
-                httpOnly: true,
-                secure: false, // Set to true if HTTPS is served
-                maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
-            });
-            res.cookie('user_id', user.id || '0', {
-                httpOnly: true,
-                secure: false,
-                maxAge: 30 * 24 * 60 * 60 * 1000
-            });
-            res.cookie('user_name', encodeURIComponent(user.name || user.firstName + ' ' + user.lastName || 'User'), {
-                httpOnly: true,
-                secure: false,
-                maxAge: 30 * 24 * 60 * 60 * 1000
-            });
-
-            console.log(`Login successful for ${user.name}(ID: ${user.id})`);
-
-            // Sync Projects (All accessible)
-            // await syncAllProjects(apikey); // Disabled by user request
-
-            res.json({
-                message: 'Login successful',
-                user: { id: user.id || 0, name: user.name || 'User' }
-            });
-        } else {
-            console.warn(`Login failed.Status: ${result.status} `);
-            res.status(401).json({
-                error: 'Login failed. Cloudflare or Invalid Key.',
-                details: typeof result.data === 'string' ? result.data.substring(0, 150) : JSON.stringify(result.data)
-            });
+    // 1. Check Local DB
+    db.get("SELECT * FROM users WHERE username = ?", [username], async (err, dbUser) => {
+        if (err) {
+            console.error('Login DB Error:', err);
+            return res.status(500).json({ error: 'Database error' });
+        }
+        if (!dbUser) {
+            // Use dummy comparison to prevent timing attacks? (Not critical for POC)
+            return res.status(401).json({ error: 'Invalid username or password' });
         }
 
-    } catch (error) {
-        console.error('Login System Error:', error);
-        res.status(500).json({ error: 'Internal Server Error during login.' });
-    }
+        // Check Password (Bcrypt or Legacy Plaintext)
+        let passwordMatch = false;
+        let migrationNeeded = false;
+
+        if (dbUser.password.startsWith('$2b$') || dbUser.password.startsWith('$2a$')) {
+            // It's a hash
+            passwordMatch = await bcrypt.compare(password, dbUser.password);
+        } else {
+            // It's likely plaintext (Legacy)
+            if (dbUser.password === password) {
+                passwordMatch = true;
+                migrationNeeded = true;
+            }
+        }
+
+        if (!passwordMatch) {
+            return res.status(401).json({ error: 'Invalid username or password' });
+        }
+
+        // Lazy Migration: Update to Hash
+        if (migrationNeeded) {
+            console.log(`Migrating password for user ${username} to hash...`);
+            const newHash = await bcrypt.hash(password, 10);
+            db.run("UPDATE users SET password = ? WHERE id = ?", [newHash, dbUser.id]);
+        }
+
+        const apikey = dbUser.api_key;
+        console.log(`User '${username}' authenticated. Verifying Key...`);
+
+        try {
+            // 2. Refresh/Verify Session with OpenProject
+            const result = await puppeteerFetch(`${HOST}/api/v3/users/me`, {
+                method: 'GET'
+            }, apikey);
+
+            if (result.status >= 200 && result.status < 300) {
+                let user = result.data;
+                if (typeof user === 'string') {
+                    try { user = JSON.parse(user); } catch (e) { }
+                }
+
+                console.log(`Login successful for: ${user.name} (ID: ${user.id})`);
+
+                // Backfill openproject_id if missing or mismatch
+                if (user.id) {
+                    db.run("UPDATE users SET openproject_id = ? WHERE id = ?", [user.id.toString(), dbUser.id]);
+                }
+
+                // Set Cookies
+                res.cookie('user_apikey', apikey, {
+                    httpOnly: true,
+                    secure: false,
+                    maxAge: 30 * 24 * 60 * 60 * 1000
+                });
+                res.cookie('user_id', user.id || '0', {
+                    httpOnly: true,
+                    secure: false,
+                    maxAge: 30 * 24 * 60 * 60 * 1000
+                });
+                res.cookie('user_name', encodeURIComponent(dbUser.name), { // Use Local Name
+                    httpOnly: true,
+                    secure: false,
+                    maxAge: 30 * 24 * 60 * 60 * 1000
+                });
+
+                // await syncAllProjects(apikey); // Disabled
+
+                res.json({
+                    message: 'Login successful',
+                    user: { id: user.id || 0, name: dbUser.name }
+                });
+            } else {
+                console.warn(`Login failed. OpenProject rejected key. Status: ${result.status}`);
+                res.status(401).json({
+                    error: 'Your OpenProject API Key may have expired or is invalid. Please contact admin or re-register.',
+                    details: JSON.stringify(result.data).substring(0, 150)
+                });
+            }
+
+        } catch (error) {
+            console.error('Login System Error:', error);
+            res.status(500).json({ error: 'Internal Server Error during login.' });
+        }
+    });
 });
 
 app.post('/api/logout', (req, res) => {
@@ -453,28 +503,24 @@ app.post('/api/logout', (req, res) => {
 app.get('/api/user', async (req, res) => {
     const session = getSession(req);
     if (session && session.isValid) {
-        // Migration: If user_id is missing but we have apikey
-        if (!req.cookies.user_id && req.cookies.user_apikey) {
-            try {
-                console.log("Missing user_id cookie, fetching from OpenProject...");
-                const result = await puppeteerFetch(`${HOST} /api/v3 / users / me`, { method: 'GET' }, req.cookies.user_apikey);
-                if (result.status === 200 && result.data && result.data.id) {
-                    const userId = result.data.id.toString();
-                    res.cookie('user_id', userId, {
-                        httpOnly: true,
-                        secure: false,
-                        maxAge: 30 * 24 * 60 * 60 * 1000
-                    });
-                    session.user.id = userId;
-                    console.log(`Auto - fixed missing user_id: ${userId} `);
-                }
-            } catch (e) {
-                console.error("Failed to auto-fix user_id cookie", e);
-            }
+        // Query Role from DB
+        const localId = req.cookies.sdb_session;
+
+        // Default response
+        const userResp = session.user || { name: 'User' };
+
+        if (localId) {
+            db.get("SELECT role FROM users WHERE id = ?", [localId], (err, row) => {
+                userResp.role = (row && row.role) ? row.role : 'user';
+                res.json(userResp);
+            });
+        } else {
+            userResp.role = 'user';
+            res.json(userResp);
         }
-        return res.json(session.user || { name: 'User' });
+    } else {
+        res.status(401).json({ error: 'Not logged in' });
     }
-    res.status(401).json({ error: 'Not logged in' });
 });
 
 function getSession(req) {
@@ -878,37 +924,26 @@ app.post('/api/sync-users', async (req, res) => {
 
     try {
         session = await createBrowserSession(apiKey);
-
         const projectIds = [614, 615];
         let allUsers = [];
 
-        // Loop using same session
         for (const pid of projectIds) {
             console.log(`Fetching available assignees for project ${pid}...`);
             const response = await fetchWithSession(session, `${HOST}/api/v3/projects/${pid}/available_assignees`, { method: 'GET' });
-
             if (response.status === 200 && response.data && response.data._embedded && response.data._embedded.elements) {
                 allUsers = allUsers.concat(response.data._embedded.elements);
-            } else {
-                console.warn(`Failed to fetch assignees for project ${pid}, Status: ${response.status}`);
             }
         }
 
-        if (allUsers.length === 0) {
-            return res.status(404).json({ error: 'No assignees found in specified projects.' });
-        }
+        if (allUsers.length === 0) return res.status(404).json({ error: 'No assignees found.' });
 
-        // De-duplicate users by ID
         const uniqueUsers = Array.from(new Map(allUsers.map(u => [u.id, u])).values());
         console.log(`Total unique assignees found: ${uniqueUsers.length}`);
 
-        // Save to DB
         db.serialize(() => {
             db.run("BEGIN TRANSACTION");
             const stmt = db.prepare("INSERT OR REPLACE INTO local_assignees (id, name, openproject_id) VALUES (?, ?, ?)");
-            uniqueUsers.forEach(u => {
-                stmt.run(u.id, u.name, u.id);
-            });
+            uniqueUsers.forEach(u => stmt.run(u.id, u.name, u.id));
             stmt.finalize();
             db.run("COMMIT");
         });
@@ -919,21 +954,14 @@ app.post('/api/sync-users', async (req, res) => {
         console.error('Sync users error:', error);
         res.status(500).json({ error: error.message });
     } finally {
-        if (session && session.browser) {
-            console.log('[BrowserSession] Closing session...');
-            await session.browser.close();
-        }
+        if (session && session.browser) await session.browser.close();
     }
 });
 
 // Sync Projects Endpoint (Manual Trigger)
 app.post('/api/sync-projects', async (req, res) => {
     const userApiKey = req.cookies.user_apikey;
-    const userId = req.cookies.user_id;
-
-    if (!userApiKey || !userId) {
-        return res.status(401).json({ error: 'Not authenticated' });
-    }
+    if (!userApiKey) return res.status(401).json({ error: 'Not authenticated' });
 
     try {
         const count = await syncAllProjects(userApiKey);
@@ -948,21 +976,141 @@ app.post('/api/sync-projects', async (req, res) => {
 app.get('/api/users-stats', (req, res) => {
     const query = `
         SELECT 
-            a.name, 
+            COALESCE(u.name, a.name) as name, 
             COUNT(h.id) as task_count
         FROM local_assignees a 
         LEFT JOIN task_history h ON a.openproject_id = h.user_id 
+        LEFT JOIN users u ON u.openproject_id = a.openproject_id
         GROUP BY a.openproject_id 
         ORDER BY task_count DESC, a.name ASC
     `;
-
     db.all(query, [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(rows);
     });
 });
 
+// --- User Management & Registration ---
+
+// Init Users Table
+db.serialize(() => {
+    db.run(`CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            name TEXT NOT NULL,
+            api_key TEXT NOT NULL,
+            role TEXT DEFAULT 'user',
+            openproject_id TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`);
+
+    db.all("PRAGMA table_info(users)", (err, columns) => {
+        if (!err && columns) {
+            const hasRole = columns.some(c => c.name === 'role');
+            if (!hasRole) {
+                console.log("Migrating: Adding 'role' column...");
+                db.run("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'");
+            }
+            const hasOpId = columns.some(c => c.name === 'openproject_id');
+            if (!hasOpId) {
+                console.log("Migrating: Adding 'openproject_id' column...");
+                db.run("ALTER TABLE users ADD COLUMN openproject_id TEXT");
+            }
+        }
+    });
+});
+
+app.post('/api/register', async (req, res) => {
+    const { name, username, password, apikey } = req.body;
+    if (!name || !username || !password || !apikey) {
+        return res.status(400).json({ error: 'All fields are required.' });
+    }
+
+    db.get('SELECT id FROM users WHERE username = ?', [username], async (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (row) return res.status(400).json({ error: 'Username already taken.' });
+
+        try {
+            const result = await puppeteerFetch(`${HOST}/api/v3/users/me`, { method: 'GET' }, apikey);
+
+            if (result.status >= 200 && result.status < 300) {
+                const opUser = result.data;
+                const hashedPassword = await bcrypt.hash(password, 10);
+                const opId = opUser.id.toString();
+
+                db.run(
+                    'INSERT INTO users (username, password, name, api_key, role, openproject_id) VALUES (?, ?, ?, ?, ?, ?)',
+                    [username, hashedPassword, name, apikey, 'user', opId],
+                    function (err) {
+                        if (err) return res.status(500).json({ error: 'Database error: ' + err.message });
+
+                        const newUserId = this.lastID;
+                        res.cookie('sdb_session', newUserId.toString(), { httpOnly: true, maxAge: 30 * 24 * 60 * 60 * 1000 });
+                        res.cookie('user_apikey', apikey, { httpOnly: true, maxAge: 30 * 24 * 60 * 60 * 1000 });
+                        res.cookie('user_id', opUser.id || '0', { httpOnly: true, maxAge: 30 * 24 * 60 * 60 * 1000 });
+                        res.cookie('user_name', encodeURIComponent(name), { httpOnly: true, maxAge: 30 * 24 * 60 * 60 * 1000 });
+
+                        res.json({
+                            message: 'Registration successful',
+                            user: { id: opUser.id, name: name }
+                        });
+                    }
+                );
+            } else {
+                res.status(401).json({ error: 'Invalid API Key.' });
+            }
+        } catch (e) {
+            console.error('Registration Error:', e);
+            res.status(500).json({ error: 'Server error during verification.' });
+        }
+    });
+});
+
+// --- Admin Endpoints ---
+
+// Get All Users (Admin Only)
+app.get('/api/admin/users', (req, res) => {
+    const localUserId = req.cookies.sdb_session;
+    if (!localUserId) return res.status(401).json({ error: "Unauthorized" });
+
+    db.get("SELECT role FROM users WHERE id = ?", [localUserId], (err, row) => {
+        if (err || !row || row.role !== 'admin') {
+            return res.status(403).json({ error: "Forbidden. Admin access required." });
+        }
+        db.all("SELECT id, username, name, role, created_at FROM users ORDER BY id DESC", [], (err, rows) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json(rows);
+        });
+    });
+});
+
+// Reset User Password (Admin Only)
+app.post('/api/admin/users/:id/reset-password', (req, res) => {
+    const targetId = req.params.id;
+    const { newPassword } = req.body;
+    const localUserId = req.cookies.sdb_session;
+
+    if (!newPassword) return res.status(400).json({ error: "New password is required" });
+
+    db.get("SELECT role FROM users WHERE id = ?", [localUserId], async (err, row) => {
+        if (err || !row || row.role !== 'admin') {
+            return res.status(403).json({ error: "Forbidden" });
+        }
+        try {
+            const hashedPassword = await bcrypt.hash(newPassword, 10);
+            db.run("UPDATE users SET password = ? WHERE id = ?", [hashedPassword, targetId], function (err) {
+                if (err) return res.status(500).json({ error: err.message });
+                res.json({ message: "Password updated successfully" });
+            });
+        } catch (e) {
+            res.status(500).json({ error: "Error hashing password" });
+        }
+    });
+});
+
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
-    console.log(`Database file should be at: ${require('path').resolve(dbFile)}`);
+    const dbPath = require('path').resolve(dbFile || 'projects.db'); // Safe reference
+    console.log(`Database file should be at: ${dbPath}`);
 });
