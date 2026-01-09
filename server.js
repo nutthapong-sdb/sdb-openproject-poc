@@ -998,6 +998,109 @@ app.get('/api/users-stats', (req, res) => {
     });
 });
 
+// GET Weekly Stats for Chart
+// GET Weekly Stats for Chart (From OpenProject)
+app.get('/api/weekly-stats', async (req, res) => {
+    const userId = req.cookies.user_id; // OpenProject User ID
+    const apiKey = req.cookies.user_apikey;
+
+    if (!userId || !apiKey) {
+        return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    // Generate last 5 days dates (including today)
+    const dates = [];
+    for (let i = 4; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        dates.push(d.toISOString().split('T')[0]);
+    }
+
+    const startDate = dates[0];
+    const endDate = dates[dates.length - 1];
+
+    try {
+        // Construct OpenProject API Filter
+        // Filter by user ID and Date Range (spentOn)
+        // Note: OpenProject filter syntax is complex JSON stringified
+        const filters = JSON.stringify([
+            { "spent_on": { "operator": "<>d", "values": [startDate, endDate] } },
+            { "user": { "operator": "=", "values": [userId] } }
+        ]);
+
+        const url = `${HOST}/api/v3/time_entries?filters=${encodeURIComponent(filters)}&pageSize=500`;
+        console.log(`Fetching time entries from: ${url}`);
+
+        const result = await puppeteerFetch(url, { method: 'GET' }, apiKey);
+
+        if (result.status !== 200) {
+            console.error('Failed to fetch stats from OP:', result.status);
+            return res.status(result.status).json({ error: 'Failed to fetch external stats' });
+        }
+
+        const entries = result.data._embedded ? result.data._embedded.elements : [];
+
+        // Aggregate
+        const stats = dates.map(date => {
+            // entries.hours is usually an ISO duration (e.g., PT5H) or simple value depending on API version
+            // OpenProject V3 usually returns "PT1H", but let's check. 
+            // Actually, usually it returns string like "PT1H", but we need to parse.
+            // Wait, standard OpenProject V3 might return hours property?
+            // Let's assume it returns ISO 8601 duration string in 'hours' field.
+
+            // Filter entries for this date
+            const dailyEntries = entries.filter(e => e.spentOn === date);
+
+            // detailed tasks: { taskId, taskName, hours } 
+
+            const detailedTasks = dailyEntries.map(e => {
+                const duration = e.hours;
+                let h = 0;
+                let m = 0;
+                const hMatch = duration.match(/(\d+(?:\.\d+)?)H/);
+                const mMatch = duration.match(/(\d+)M/);
+                if (hMatch) h = parseFloat(hMatch[1]);
+                if (mMatch) m = parseInt(mMatch[1]);
+                const total = h + (m / 60);
+
+                // Try to get work package ID/Name
+                // e._links.workPackage.href -> "/api/v3/work_packages/3038"
+                // e._links.workPackage.title -> "Task Name" (Only if lightweight representation includes it, otherwise we might just have ID)
+
+                const wpLink = e._links.workPackage;
+                const wpId = wpLink.href.split('/').pop();
+                const wpTitle = wpLink.title || `Task #${wpId}`;
+
+                return {
+                    taskId: wpId,
+                    taskName: wpTitle,
+                    hours: parseFloat(total.toFixed(2))
+                };
+            });
+
+            // Format Label
+            const parts = date.split('-');
+            let label = `${parts[2]}/${parts[1]}`;
+            const today = new Date().toISOString().split('T')[0];
+            if (date === today) label += ' (Today)';
+
+            return {
+                date: date,
+                label: label,
+                tasks: detailedTasks,
+                totalHours: detailedTasks.reduce((s, t) => s + t.hours, 0)
+            };
+        });
+
+        console.log("Weekly Stats Response:", JSON.stringify(stats, null, 2));
+        res.json(stats);
+
+    } catch (e) {
+        console.error('Weekly Stats Error:', e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // --- User Management & Registration ---
 
 // Init Users Table

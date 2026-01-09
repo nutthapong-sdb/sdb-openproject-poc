@@ -374,6 +374,162 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     };
 
+
+
+    // --- Chart.js Logic ---
+    let weeklyChartInstance = null;
+
+    const loadWeeklyStats = async () => {
+        const ctx = document.getElementById('weeklyChart');
+        if (!ctx) return;
+
+        try {
+            const response = await fetch('/api/weekly-stats');
+            if (!response.ok) return;
+            const stats = await response.json();
+
+            const labels = stats.map(s => s.label);
+
+            // We need to create datasets based on Tasks.
+            // 1. Identify all unique task IDs involved in this week.
+            const uniqueTaskIds = new Set();
+            stats.forEach(day => {
+                day.tasks.forEach(t => uniqueTaskIds.add(t.taskId));
+            });
+
+            // 2. Map Task IDs to Names (for legend/tooltip) - straightforward mapping
+            const taskInfoMap = {}; // { taskId: { name, color } }
+            // Rainbow Palette (Pastel)
+            const rainbowColors = [
+                '#FF6961', // Pastel Red
+                '#FFB347', // Pastel Orange
+                '#FDFD96', // Pastel Yellow (Caution: Light)
+                '#77DD77', // Pastel Green
+                '#AEC6CF', // Pastel Blue
+                '#7AC5CD', // Pastel Cyan
+                '#B39EB5'  // Pastel Purple
+            ];
+
+            const datasets = [];
+            let colorIndex = 0;
+
+            uniqueTaskIds.forEach(taskId => {
+                // Find task info from first occurrence
+                let taskName = `Task #${taskId}`;
+                for (const day of stats) {
+                    const t = day.tasks.find(x => x.taskId === taskId);
+                    if (t) { taskName = t.taskName; break; }
+                }
+
+                // Build data array for this task across all dates
+                const data = stats.map(day => {
+                    const t = day.tasks.find(x => x.taskId === taskId);
+                    return t ? t.hours : 0;
+                });
+
+                datasets.push({
+                    label: taskName,
+                    taskId: taskId,
+                    data: data,
+                    backgroundColor: rainbowColors[colorIndex % rainbowColors.length],
+                    stack: 'Stack 0',
+                    barPercentage: 1.0,
+                    categoryPercentage: 1.0,
+                    // 1px Rounding and Margin
+                    borderRadius: 5,
+                    borderWidth: 1, // 1px margin (gap)
+                    borderColor: '#1E1E1E', // Matches card background to create 'gap'
+                    borderSkipped: false // Gap on all sides
+                });
+
+                colorIndex++;
+            });
+
+            if (weeklyChartInstance) {
+                weeklyChartInstance.destroy();
+            }
+
+            weeklyChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: datasets
+                },
+                plugins: [ChartDataLabels],
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    layout: { padding: 0 },
+                    plugins: {
+                        datalabels: {
+                            color: '#000000ff',
+                            // Default Centered Position
+                            anchor: 'center',
+                            align: 'center',
+                            clip: true,
+                            font: function (context) {
+                                var value = context.dataset.data[context.dataIndex];
+                                var size = Math.min(11, Math.max(9, 8 + value));
+                                return { size: size, weight: 'normal' }; // Lighter weight
+                            },
+                            formatter: (value, ctx) => {
+                                if (!value || value < 0.2) return '';
+
+                                const ds = ctx.dataset;
+                                const taskId = ds.taskId;
+                                const taskLabel = ds.label;
+
+                                // Combine all into one string and wrap
+                                const fullText = `${value}h #${taskId} ${taskLabel}`;
+
+                                // Helper to wrap text by character (force break)
+                                const wrapText = (str, limit) => {
+                                    if (!str) return '';
+                                    const regex = new RegExp(`.{1,${limit}}`, 'g');
+                                    return str.match(regex).join('\n');
+                                };
+
+                                return wrapText(fullText, 25);
+                            },
+                            display: true
+                        },
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            backgroundColor: '#333',
+                            titleColor: '#fff',
+                            bodyColor: '#fff',
+                            borderColor: '#555',
+                            borderWidth: 1,
+                            callbacks: {
+                                label: function (context) {
+                                    return `${context.dataset.label}: ${context.parsed.y} hrs`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            stacked: true,
+                            grid: { color: '#333' },
+                            ticks: { color: '#aaa', font: { size: 11 } }
+                        },
+                        y: {
+                            stacked: true,
+                            beginAtZero: true,
+                            grid: { color: '#333' },
+                            ticks: { color: '#aaa' }
+                        }
+                    }
+                }
+            });
+
+        } catch (error) {
+            console.error('Error loading weekly stats:', error);
+        }
+    };
+
     const addToHistory = async (task) => {
         try {
             await fetch('/api/history', {
@@ -390,6 +546,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 })
             });
             loadHistory();
+            loadWeeklyStats(); // Reload chart
         } catch (error) {
             console.error('Error adding to history:', error);
         }
@@ -804,6 +961,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
     loadHistory(); // Initial Load History
     loadUserStats(); // Initial Load Stats
+    loadWeeklyStats(); // Initial Chart Load
 
     // --- Admin Panel Logic ---
     $('#adminPanelBtn').click(openAdminPanel);

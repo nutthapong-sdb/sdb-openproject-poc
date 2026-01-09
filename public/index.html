@@ -11,6 +11,9 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/css/select2.min.css" rel="stylesheet" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/js/select2.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/js/select2.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
         /* Custom Select2 Dark Theme */
@@ -170,18 +173,23 @@
                                 </div>
                                 <div class="form-group" style="flex: 2; margin-bottom: 0;">
                                     <label for="spentHours">Time (Hr)</label>
-                                    <input type="number" id="spentHours" placeholder="Hr" min="0" step="0.5"
-                                        value="1" style="width: 100%;">
+                                    <input type="number" id="spentHours" placeholder="Hr" min="0" step="0.5" value="1"
+                                        style="width: 100%;">
                                 </div>
                                 <div class="form-group" style="flex: 7; margin-bottom: 0;">
                                     <label>% Complete</label>
                                     <div class="percentage-group" style="display: flex; gap: 5px;">
                                         <input type="hidden" id="percentageDone" value="100">
-                                        <button type="button" class="percent-btn" data-value="0" style="flex: 1; padding: 0;">0%</button>
-                                        <button type="button" class="percent-btn" data-value="25" style="flex: 1; padding: 0;">25%</button>
-                                        <button type="button" class="percent-btn" data-value="50" style="flex: 1; padding: 0;">50%</button>
-                                        <button type="button" class="percent-btn" data-value="75" style="flex: 1; padding: 0;">75%</button>
-                                        <button type="button" class="percent-btn active" data-value="100" style="flex: 1; padding: 0;">100%</button>
+                                        <button type="button" class="percent-btn" data-value="0"
+                                            style="flex: 1; padding: 0;">0%</button>
+                                        <button type="button" class="percent-btn" data-value="25"
+                                            style="flex: 1; padding: 0;">25%</button>
+                                        <button type="button" class="percent-btn" data-value="50"
+                                            style="flex: 1; padding: 0;">50%</button>
+                                        <button type="button" class="percent-btn" data-value="75"
+                                            style="flex: 1; padding: 0;">75%</button>
+                                        <button type="button" class="percent-btn active" data-value="100"
+                                            style="flex: 1; padding: 0;">100%</button>
                                     </div>
                                 </div>
                             </div>
@@ -192,6 +200,16 @@
                             </button>
                         </form>
                     </main>
+                </div>
+
+                <!-- Panel 1.5: Weekly Chart -->
+                <div class="panel left-panel" style="width: 100%; max-width: none;">
+                    <header style="margin-bottom: 15px;">
+                        <h2 style="font-size: 1.2rem;">Weekly Activity</h2>
+                    </header>
+                    <div style="position: relative; height: 600px; width: 100%;">
+                        <canvas id="weeklyChart"></canvas>
+                    </div>
                 </div>
             </div>
 
