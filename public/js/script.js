@@ -356,12 +356,18 @@ document.addEventListener('DOMContentLoaded', async () => {
                     text: 'Task deleted successfully.',
                     timer: 2000,
                     showConfirmButton: false
+                }).then(() => {
+                    // Reload page to refresh dashboard
+                    window.location.reload();
                 });
             } else {
                 Swal.fire({
                     icon: 'warning',
                     title: 'Partially Deleted',
                     text: 'Removed from history, but could not delete from OpenProject (it might have been deleted already).'
+                }).then(() => {
+                    // Reload page to refresh dashboard
+                    window.location.reload();
                 });
             }
         } catch (error) {
