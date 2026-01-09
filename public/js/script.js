@@ -374,6 +374,169 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     };
 
+
+
+    // --- Chart.js Logic ---
+    let weeklyChartInstance = null;
+
+    const loadWeeklyStats = async () => {
+        const ctx = document.getElementById('weeklyChart');
+        if (!ctx) return;
+
+        try {
+            const response = await fetch('/api/weekly-stats');
+            if (!response.ok) return;
+            const stats = await response.json();
+
+            const labels = stats.map(s => s.label);
+
+            // We need to create datasets based on Tasks.
+            // 1. Identify all unique task IDs involved in this week.
+            const uniqueTaskIds = new Set();
+            stats.forEach(day => {
+                day.tasks.forEach(t => uniqueTaskIds.add(t.taskId));
+            });
+
+            // 2. Map Task IDs to Names (for legend/tooltip) - straightforward mapping
+            const taskInfoMap = {}; // { taskId: { name, color } }
+            // Helper to generate distinct HSL colors based on ID
+            const generateColor = (id) => {
+                const str = id.toString();
+                let hash = 0;
+                for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+                // Use hash to pick a hue (0-360)
+                const hue = Math.abs(hash % 360);
+                // Fix Saturation and Lightness for vibrant but readable colors
+                return `hsl(${hue}, 70%, 45%)`;
+            };
+
+            const datasets = [];
+
+            uniqueTaskIds.forEach(taskId => {
+                // Find task info from first occurrence
+                let taskName = `Task #${taskId}`;
+                for (const day of stats) {
+                    const t = day.tasks.find(x => x.taskId === taskId);
+                    if (t) { taskName = t.taskName; break; }
+                }
+
+                // Build data array for this task across all dates
+                const data = stats.map(day => {
+                    const t = day.tasks.find(x => x.taskId === taskId);
+                    return t ? t.hours : 0;
+                });
+
+                datasets.push({
+                    label: taskName,
+                    taskId: taskId,
+                    data: data,
+                    backgroundColor: generateColor(taskId),
+                    stack: 'Stack 0',
+                    barPercentage: 1.0,
+                    categoryPercentage: 1.0,
+                    categoryPercentage: 1.0
+                });
+            });
+
+            if (weeklyChartInstance) {
+                weeklyChartInstance.destroy();
+            }
+
+            weeklyChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: datasets
+                },
+                plugins: [ChartDataLabels],
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    layout: { padding: 0 },
+                    plugins: {
+                        datalabels: {
+                            color: '#eee',
+                            // Default Centered Position
+                            anchor: 'center',
+                            align: 'center',
+                            clip: true,
+                            font: function (context) {
+                                var value = context.dataset.data[context.dataIndex];
+                                var size = Math.min(11, Math.max(9, 8 + value));
+                                return { size: size, weight: 'normal' }; // Lighter weight
+                            },
+                            formatter: (value, ctx) => {
+                                if (!value || value < 0.2) return '';
+
+                                const ds = ctx.dataset;
+                                const taskId = ds.taskId;
+                                const taskLabel = ds.label;
+
+                                // Combine all into one string and wrap
+                                const fullText = `${value}h #${taskId} ${taskLabel}`;
+
+                                // Helper to wrap text
+                                const wrapText = (str, limit) => {
+                                    const words = str.split(' ');
+                                    let lines = [];
+                                    let currentLine = words[0];
+
+                                    for (let i = 1; i < words.length; i++) {
+                                        if (currentLine.length + 1 + words[i].length <= limit) {
+                                            currentLine += ' ' + words[i];
+                                        } else {
+                                            lines.push(currentLine);
+                                            currentLine = words[i];
+                                        }
+                                    }
+                                    lines.push(currentLine);
+                                    // Hack to force left alignment visual if block is centered:
+                                    // ChartDataLabels centers the text block. To feel "left", lines should be long enough?
+                                    // We can't force block position easily to left edge.
+                                    return lines.join('\n');
+                                };
+
+                                return wrapText(fullText, 25);
+                            },
+                            display: true
+                        },
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            backgroundColor: '#333',
+                            titleColor: '#fff',
+                            bodyColor: '#fff',
+                            borderColor: '#555',
+                            borderWidth: 1,
+                            callbacks: {
+                                label: function (context) {
+                                    return `${context.dataset.label}: ${context.parsed.y} hrs`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            stacked: true,
+                            grid: { color: '#333' },
+                            ticks: { color: '#aaa', font: { size: 11 } }
+                        },
+                        y: {
+                            stacked: true,
+                            beginAtZero: true,
+                            grid: { color: '#333' },
+                            ticks: { color: '#aaa' }
+                        }
+                    }
+                }
+            });
+
+        } catch (error) {
+            console.error('Error loading weekly stats:', error);
+        }
+    };
+
     const addToHistory = async (task) => {
         try {
             await fetch('/api/history', {
@@ -390,6 +553,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 })
             });
             loadHistory();
+            loadWeeklyStats(); // Reload chart
         } catch (error) {
             console.error('Error adding to history:', error);
         }
@@ -804,6 +968,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
     loadHistory(); // Initial Load History
     loadUserStats(); // Initial Load Stats
+    loadWeeklyStats(); // Initial Chart Load
 
     // --- Admin Panel Logic ---
     $('#adminPanelBtn').click(openAdminPanel);
