@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             document.getElementById('userNameDisplay').textContent = `${displayName} (${userData.id})`;
 
             // Show Settings (with Admin Panel inside) only for admin role
+            // Show Settings (with Admin Panel inside) only for admin role
             if (userData.role === 'admin') {
                 $('#settingsWrapper').show();
             }

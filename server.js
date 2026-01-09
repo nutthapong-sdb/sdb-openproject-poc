@@ -1110,13 +1110,16 @@ app.post('/api/admin/users/:id/reset-password', async (req, res) => {
 });
 
 // Update User Info (All logged-in users can access)
+// Update User Info (All logged-in users can access but check permissions in real app)
 app.put('/api/admin/users/:id', (req, res) => {
     const targetId = req.params.id;
-    const { username, name } = req.body;
+    const { username, name, role } = req.body;
     const localUserId = req.cookies.sdb_session;
 
+    console.log(`DEBUG: Updating User ${targetId} -> Role: ${role}, Username: ${username}, Name: ${name}`);
+
     if (!localUserId) return res.status(401).json({ error: "Unauthorized" });
-    if (!username && !name) return res.status(400).json({ error: "Username or name is required" });
+    if (!username && !name && !role) return res.status(400).json({ error: "At least one field is required" });
 
     // Build dynamic update query
     let updates = [];
@@ -1129,6 +1132,10 @@ app.put('/api/admin/users/:id', (req, res) => {
     if (name) {
         updates.push("name = ?");
         params.push(name);
+    }
+    if (role) {
+        updates.push("role = ?");
+        params.push(role);
     }
 
     params.push(targetId);
