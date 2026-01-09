@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             document.getElementById('userNameDisplay').textContent = `${displayName} (${userData.id})`;
 
             // Show Settings (with Admin Panel inside) only for admin role
+            // Show Settings (with Admin Panel inside) only for admin role
             if (userData.role === 'admin') {
                 $('#settingsWrapper').show();
             }
@@ -837,7 +838,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                             <span style="background: ${u.role === 'admin' ? '#9c27b0' : '#444'}; padding: 2px 8px; border-radius: 4px; font-size: 0.8em; color: white;">${u.role}</span>
                         </td>
                         <td style="padding: 10px; text-align: center;">
-                            <button onclick="window.editUser(${u.id}, '${u.username}', '${u.name}')" style="background: #4CAF50; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; margin-right: 5px;">Edit</button>
+                            <button onclick="window.editUser(${u.id}, '${u.username}', '${u.name}', '${u.role}')" style="background: #4CAF50; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; margin-right: 5px;">Edit</button>
                             <button onclick="window.resetUserPassword(${u.id}, '${u.username}')" style="background: #e57373; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">Reset Pwd</button>
                         </td>
                     </tr>
@@ -850,13 +851,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     // Expose edit function to global scope
-    window.editUser = async (id, username, name) => {
+    window.editUser = async (id, username, name, role) => {
         const result = await Swal.fire({
             title: 'Edit User',
             html:
                 `<div style="display: flex; flex-direction: column; gap: 10px;">
                     <input id="swal-username" class="swal2-input" placeholder="Username" value="${username}" style="margin: 0;">
                     <input id="swal-name" class="swal2-input" placeholder="Full Name" value="${name}" style="margin: 0;">
+                    <select id="swal-role" class="swal2-input" style="margin: 0; padding: 0 10px;">
+                        <option value="user" ${role === 'user' ? 'selected' : ''}>User</option>
+                        <option value="admin" ${role === 'admin' ? 'selected' : ''}>Admin</option>
+                    </select>
                 </div>`,
             focusConfirm: false,
             showCancelButton: true,
@@ -865,11 +870,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             preConfirm: () => {
                 const newUsername = document.getElementById('swal-username').value;
                 const newName = document.getElementById('swal-name').value;
+                const newRole = document.getElementById('swal-role').value;
+
                 if (!newUsername || !newName) {
-                    Swal.showValidationMessage('Both fields are required');
+                    Swal.showValidationMessage('Fields are required');
                     return false;
                 }
-                return { username: newUsername, name: newName };
+                return { username: newUsername, name: newName, role: newRole };
             }
         });
 
