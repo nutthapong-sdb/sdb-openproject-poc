@@ -232,7 +232,7 @@ const db = new sqlite3.Database(dbFile);
 db.serialize(() => {
     db.run("CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY, project_id TEXT UNIQUE, name TEXT, updated_at DATETIME)");
     db.run("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)");
-    db.run("CREATE TABLE IF NOT EXISTS local_assignees (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, openproject_id TEXT)");
+    db.run("CREATE TABLE IF NOT EXISTS local_assignees (id INTEGER PRIMARY KEY, name TEXT)");
     db.run(`CREATE TABLE IF NOT EXISTS task_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id TEXT NOT NULL,
@@ -607,16 +607,16 @@ app.post('/api/assignees', async (req, res) => {
         return res.status(404).json({ error: `Could not find OpenProject user matching '${name}'. Please check the spelling.` });
     }
 
-    db.get("SELECT * FROM local_assignees WHERE openproject_id = ?", [finalOpId], (err, row) => {
+    db.get("SELECT * FROM local_assignees WHERE id = ?", [finalOpId], (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
         if (row) {
             // Found existing, return it (Find or Create logic)
             return res.json(row);
         }
 
-        db.run("INSERT INTO local_assignees (name, openproject_id) VALUES (?, ?)", [name, finalOpId], function (err) {
+        db.run("INSERT INTO local_assignees (id, name) VALUES (?, ?)", [finalOpId, name], function (err) {
             if (err) return res.status(500).json({ error: err.message });
-            res.json({ id: this.lastID, name: name, openproject_id: finalOpId });
+            res.json({ id: finalOpId, name: name });
         });
     });
 });
@@ -948,10 +948,10 @@ app.post('/api/sync-users', async (req, res) => {
 
         db.serialize(() => {
             db.run("BEGIN TRANSACTION");
-            // Use UPSERT to update name if user exists, or insert new if not. 
-            // id column is AUTOINCREMENT, rely on openproject_id uniqueness.
-            const stmt = db.prepare("INSERT INTO local_assignees (name, openproject_id) VALUES (?, ?) ON CONFLICT(openproject_id) DO UPDATE SET name=excluded.name");
-            uniqueUsers.forEach(u => stmt.run(u.name, u.id));
+            // Use UPSERT
+            // id column is now the OpenProject ID (Primary Key)
+            const stmt = db.prepare("INSERT INTO local_assignees (id, name) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET name=excluded.name");
+            uniqueUsers.forEach(u => stmt.run(u.id, u.name));
             stmt.finalize();
             db.run("COMMIT");
         });
@@ -987,9 +987,9 @@ app.get('/api/users-stats', (req, res) => {
             COALESCE(u.name, a.name) as name, 
             COUNT(h.id) as task_count
         FROM local_assignees a 
-        LEFT JOIN task_history h ON a.openproject_id = h.user_id 
-        LEFT JOIN users u ON u.openproject_id = a.openproject_id
-        GROUP BY a.openproject_id 
+        LEFT JOIN task_history h ON a.id = h.user_id 
+        LEFT JOIN users u ON u.openproject_id = a.id
+        GROUP BY a.id 
         ORDER BY task_count DESC, a.name ASC
     `;
     db.all(query, [], (err, rows) => {
