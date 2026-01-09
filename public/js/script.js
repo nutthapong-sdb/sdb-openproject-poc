@@ -82,7 +82,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             users.forEach(user => {
                 // Format: "ID - Name"
-                const text = user.openproject_id ? `${user.openproject_id} - ${user.name}` : user.name;
+                const text = `${user.id} - ${user.name}`;
                 const option = new Option(text, user.id, false, false);
                 assigneeSelect.append(option);
             });
@@ -97,8 +97,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                         const me = await meRes.json();
                         const myName = me.name || (me.firstName + ' ' + me.lastName);
 
-                        // Fix: Try to match by OpenProject ID first, then by Name
-                        const match = users.find(u => (u.openproject_id && u.openproject_id == me.id) || u.name === myName);
+                        // Fix: Match by ID directly (since local_assignees uses OpenProject ID as Primary Key)
+                        const match = users.find(u => u.id == me.id);
 
                         if (match) {
                             assigneeSelect.val(match.id).trigger('change');
