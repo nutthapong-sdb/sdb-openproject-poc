@@ -482,25 +482,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                                 // Combine all into one string and wrap
                                 const fullText = `${value}h #${taskId} ${taskLabel}`;
 
-                                // Helper to wrap text
+                                // Helper to wrap text by character (force break)
                                 const wrapText = (str, limit) => {
-                                    const words = str.split(' ');
-                                    let lines = [];
-                                    let currentLine = words[0];
-
-                                    for (let i = 1; i < words.length; i++) {
-                                        if (currentLine.length + 1 + words[i].length <= limit) {
-                                            currentLine += ' ' + words[i];
-                                        } else {
-                                            lines.push(currentLine);
-                                            currentLine = words[i];
-                                        }
-                                    }
-                                    lines.push(currentLine);
-                                    // Hack to force left alignment visual if block is centered:
-                                    // ChartDataLabels centers the text block. To feel "left", lines should be long enough?
-                                    // We can't force block position easily to left edge.
-                                    return lines.join('\n');
+                                    if (!str) return '';
+                                    const regex = new RegExp(`.{1,${limit}}`, 'g');
+                                    return str.match(regex).join('\n');
                                 };
 
                                 return wrapText(fullText, 25);
