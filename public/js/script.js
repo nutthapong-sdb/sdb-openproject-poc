@@ -399,18 +399,19 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             // 2. Map Task IDs to Names (for legend/tooltip) - straightforward mapping
             const taskInfoMap = {}; // { taskId: { name, color } }
-            // Helper to generate distinct HSL colors based on ID
-            const generateColor = (id) => {
-                const str = id.toString();
-                let hash = 0;
-                for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
-                // Use hash to pick a hue (0-360)
-                const hue = Math.abs(hash % 360);
-                // Fix Saturation and Lightness for vibrant but readable colors
-                return `hsl(${hue}, 70%, 45%)`;
-            };
+            // Rainbow Palette (Pastel)
+            const rainbowColors = [
+                '#FF6961', // Pastel Red
+                '#FFB347', // Pastel Orange
+                '#FDFD96', // Pastel Yellow (Caution: Light)
+                '#77DD77', // Pastel Green
+                '#AEC6CF', // Pastel Blue
+                '#7AC5CD', // Pastel Cyan
+                '#B39EB5'  // Pastel Purple
+            ];
 
             const datasets = [];
+            let colorIndex = 0;
 
             uniqueTaskIds.forEach(taskId => {
                 // Find task info from first occurrence
@@ -430,12 +431,18 @@ document.addEventListener('DOMContentLoaded', async () => {
                     label: taskName,
                     taskId: taskId,
                     data: data,
-                    backgroundColor: generateColor(taskId),
+                    backgroundColor: rainbowColors[colorIndex % rainbowColors.length],
                     stack: 'Stack 0',
                     barPercentage: 1.0,
                     categoryPercentage: 1.0,
-                    categoryPercentage: 1.0
+                    // 1px Rounding and Margin
+                    borderRadius: 5,
+                    borderWidth: 1, // 1px margin (gap)
+                    borderColor: '#1E1E1E', // Matches card background to create 'gap'
+                    borderSkipped: false // Gap on all sides
                 });
+
+                colorIndex++;
             });
 
             if (weeklyChartInstance) {
@@ -455,7 +462,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     layout: { padding: 0 },
                     plugins: {
                         datalabels: {
-                            color: '#eee',
+                            color: '#000000ff',
                             // Default Centered Position
                             anchor: 'center',
                             align: 'center',
