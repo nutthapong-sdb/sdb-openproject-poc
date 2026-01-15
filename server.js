@@ -53,20 +53,20 @@ async function puppeteerFetch(url, options = {}, specificApiKey = null, timeoutM
         ];
 
         // Specific config for Docker/Linux if Chromium is at system path
-        const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || undefined;
+        const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || puppeteer.executablePath();
 
-        console.log(`[Puppeteer] Launching... (Path: ${executablePath || 'bundled'})`);
+        console.log(`[Puppeteer] Launching... Path: ${executablePath}`);
 
         browser = await puppeteer.launch({
             headless: 'new',
-            executablePath: executablePath,
+            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined, // Use env if set, else bundled
             args: launchArgs
         });
 
         const page = await browser.newPage();
         await page.setViewport({ width: 1920, height: 1080 });
 
-        // Authenticate (Basic Auth) - Helps if CF allows authorized traffic
+        // Authenticate (Basic Auth)
         const keyToUse = specificApiKey;
         if (keyToUse) {
             await page.authenticate({ username: 'apikey', password: keyToUse });
@@ -74,32 +74,35 @@ async function puppeteerFetch(url, options = {}, specificApiKey = null, timeoutM
 
         // --- Navigate with Error Handling ---
         try {
-            // Go to target URL (or Host first if needed to set cookies)
-            // If checking API directly, we might trigger JSON view
             console.log(`[Puppeteer] Navigating to ${url}...`);
 
-            // Set Headers (mimic fetch options)
-            if (options.headers) {
-                await page.setExtraHTTPHeaders(options.headers);
-            }
+            // Set Headers
+            if (options.headers) await page.setExtraHTTPHeaders(options.headers);
 
-            // Determine method
             const method = options.method || 'GET';
 
             if (method === 'GET') {
                 const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
-                const content = await page.evaluate(() => document.body.innerText); // Try to get raw text
+                const content = await page.evaluate(() => document.body.innerText);
 
-                // Attempt JSON Parse
                 try {
                     return { status: response.status(), data: JSON.parse(content) };
                 } catch {
-                    return { status: response.status(), data: content }; // Fallback to text (maybe HTML error)
+                    // --- DEBUG: TAKE SCREENSHOT ON ERROR ---
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                    const debugDir = './public/debug';
+                    if (!fs.existsSync(debugDir)) fs.mkdirSync(debugDir);
+                    const shotPath = `${debugDir}/error_${timestamp}.png`;
+                    await page.screenshot({ path: shotPath, fullPage: true });
+                    console.error(`[Puppeteer] JSON Parse Failed. content preview: ${content.substring(0, 200)}...`);
+                    console.error(`[Puppeteer] Screenshot saved to: ${shotPath}`);
+
+                    return { status: response.status(), data: content, error: 'Invalid JSON response (Check Debug Screenshot)' };
                 }
 
             } else {
-                // For POST/PUT, we use page.evaluate to run fetch inside the browser context
-                // This uses the Browser's Fetch (passing CF checks)
+                // ... (Keep POST logic same, or add similar screenshot logic if needed ...
+                // For brevity, skipping logic duplication inside page.evaluate unless requested
                 const result = await page.evaluate(async (endpoint, opts, authKey) => {
                     const headers = {
                         'Content-Type': 'application/json',
@@ -115,17 +118,32 @@ async function puppeteerFetch(url, options = {}, specificApiKey = null, timeoutM
                         });
                         const txt = await res.text();
                         try { return { status: res.status, data: JSON.parse(txt) }; }
-                        catch { return { status: res.status, data: txt }; }
+                        catch { return { status: res.status, data: txt, isError: true }; }
                     } catch (e) {
                         return { status: 500, error: e.toString() };
                     }
                 }, url, options, keyToUse);
+
+                if (result.isError) {
+                    // Screenshot for POST fail
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                    const debugDir = './public/debug';
+                    if (!fs.existsSync(debugDir)) fs.mkdirSync(debugDir);
+                    await page.screenshot({ path: `${debugDir}/post_error_${timestamp}.png` });
+                    console.error(`[Puppeteer] POST Failed. Response: ${result.data}`);
+                }
 
                 return result;
             }
 
         } catch (e) {
             console.error('[Puppeteer] Navigation/Eval Error:', e.message);
+            // Screenshot on Crash
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const debugDir = './public/debug';
+            if (!fs.existsSync(debugDir)) fs.mkdirSync(debugDir);
+            await page.screenshot({ path: `${debugDir}/crash_${timestamp}.png` }).catch(() => { });
+
             return { status: 500, error: e.message };
         }
 
