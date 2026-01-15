@@ -48,7 +48,10 @@ async function puppeteerFetch(url, options = {}, specificApiKey = null, timeoutM
             '--disable-accelerated-2d-canvas',
             '--no-first-run',
             '--no-zygote',
+            '--single-process',
             '--disable-gpu',
+            '--disable-software-rasterizer',
+            '--mute-audio',
             '--disable-extensions'
         ];
 
@@ -58,9 +61,10 @@ async function puppeteerFetch(url, options = {}, specificApiKey = null, timeoutM
         console.log(`[Puppeteer] Launching... Path: ${executablePath}`);
 
         browser = await puppeteer.launch({
-            headless: 'new',
-            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined, // Use env if set, else bundled
-            args: launchArgs
+            headless: true,
+            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+            args: launchArgs,
+            dumpio: true
         });
 
         const page = await browser.newPage();
