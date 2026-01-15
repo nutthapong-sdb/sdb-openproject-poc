@@ -46,13 +46,12 @@ async function puppeteerFetch(url, options = {}, specificApiKey = null, timeoutM
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
             '--disable-accelerated-2d-canvas',
+            '--disable-gpu',
             '--no-first-run',
             '--no-zygote',
-            '--single-process',
-            '--disable-gpu',
-            '--disable-software-rasterizer',
-            '--mute-audio',
-            '--disable-extensions'
+            '--disable-notifications',
+            '--disable-extensions',
+            '--mute-audio'
         ];
 
         // Specific config for Docker/Linux if Chromium is at system path
