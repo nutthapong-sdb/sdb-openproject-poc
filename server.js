@@ -1113,9 +1113,12 @@ app.post('/api/register', async (req, res) => {
         return res.status(400).json({ error: 'All fields are required.' });
     }
 
-    db.get('SELECT id FROM users WHERE username = ?', [username], async (err, row) => {
+    db.get('SELECT id, username, api_key FROM users WHERE username = ? OR api_key = ?', [username, apikey], async (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
-        if (row) return res.status(400).json({ error: 'Username already taken.' });
+        if (row) {
+            if (row.username === username) return res.status(400).json({ error: 'Username already taken.' });
+            if (row.api_key === apikey) return res.status(400).json({ error: 'This API Key is already registered.', errorIdentifier: 'DUPLICATE_API_KEY' });
+        }
 
         try {
             // Check if DB is empty to assign ROOT role
