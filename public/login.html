@@ -44,29 +44,33 @@
 
         <!-- Register Form (Hidden by default) -->
         <form id="registerForm" style="text-align: left; display: none;">
-            <div style="display: flex; gap: 10px;">
-                <div class="form-group" style="flex: 1;">
-                    <label for="name">Name</label>
-                    <input type="text" id="name" placeholder="Full Name" required
-                        style="width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid #444; color: white; border-radius: 4px;">
-                </div>
-                <div class="form-group" style="flex: 1;">
-                    <label for="username">Username</label>
-                    <input type="text" id="username" placeholder="Username" required
-                        style="width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid #444; color: white; border-radius: 4px;">
-                </div>
+            
+            <!-- Vertically Stacked Fields -->
+            <div class="form-group" style="margin-bottom: 15px;">
+                <label for="name">Name</label>
+                <input type="text" id="name" placeholder="Full Name" required
+                    style="width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid #444; color: white; border-radius: 4px;">
+            </div>
+            
+            <div class="form-group" style="margin-bottom: 15px;">
+                <label for="username">Username</label>
+                <input type="text" id="username" placeholder="Username" required
+                    style="width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid #444; color: white; border-radius: 4px;">
             </div>
 
-            <div style="display: flex; gap: 10px;">
-                <div class="form-group" style="flex: 1;">
-                    <label for="password">Password</label>
+            <div class="form-group" style="margin-bottom: 15px; position: relative;">
+                <label for="password">Password</label>
+                <div style="position: relative;">
                     <input type="password" id="password" placeholder="Password" required
-                        style="width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid #444; color: white; border-radius: 4px;">
-                </div>
-                <div class="form-group" style="flex: 1;">
-                    <label for="confirmPassword">Confirm Password</label>
-                    <input type="password" id="confirmPassword" placeholder="Confirm" required
-                        style="width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid #444; color: white; border-radius: 4px;">
+                        style="width: 100%; padding: 10px; padding-right: 40px; background: #2a2a2a; border: 1px solid #444; color: white; border-radius: 4px;">
+                    
+                    <!-- Eye Icon Toggle -->
+                    <span id="togglePassword" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); cursor: pointer; color: #888;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                            <circle cx="12" cy="12" r="3"></circle>
+                        </svg>
+                    </span>
                 </div>
             </div>
 
@@ -95,6 +99,17 @@
             // fetch('/api/user').then(res => {
             //     if (res.ok) window.location.href = '/';
             // });
+
+            // Toggle Password Visibility
+            $('#togglePassword').on('click', function() {
+                const passwordInput = $('#password');
+                const type = passwordInput.attr('type') === 'password' ? 'text' : 'password';
+                passwordInput.attr('type', type);
+                
+                // Toggle Eye Icon Style (Optional: Strike-through if hidden/shown logic wanted, 
+                // but simple toggle is enough for now)
+                $(this).css('color', type === 'text' ? '#fff' : '#888');
+            });
 
             // Toggle Forms
             $('#showRegister').on('click', function (e) {
@@ -151,14 +166,10 @@
                 const name = $('#name').val().trim();
                 const username = $('#username').val().trim();
                 const password = $('#password').val();
-                const confirmPassword = $('#confirmPassword').val();
                 const apikey = $('#apikey').val().trim();
 
-                if (password !== confirmPassword) {
-                    Swal.fire('Error', 'Passwords do not match', 'error');
-                    return;
-                }
-
+                // Removed Confirm Password Check
+                
                 $('#regBtn').prop('disabled', true);
                 $('#regBtnText').hide();
                 $('#regBtnLoader').show();
@@ -167,7 +178,7 @@
                     const res = await fetch('/api/register', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ name, username, password, apikey })
+                        body: JSON.stringify({ name, username, password, apikey }) // Removed confirmPassword logic
                     });
 
                     const data = await res.json();
