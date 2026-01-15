@@ -17,208 +17,131 @@ app.use(cookieParser());
 // Helper to check session
 function getSession(req) {
     const apiKey = req.cookies.user_apikey;
-    // We can also check sdb_session or user_id
-    if (apiKey) {
-        return { isValid: true, apiKey };
-    }
+    if (apiKey) return { isValid: true, apiKey };
     return { isValid: false };
 }
 
-// Intercept Login Page: Redirect if already logged in
 app.get(['/login.html', '/login'], (req, res, next) => {
-    // This relies on getSession being hoisted
     const session = getSession(req);
-    if (session && session.isValid) {
-        return res.redirect('/');
-    }
+    if (session && session.isValid) return res.redirect('/');
     next();
 });
 
-// Protect Home Page: Redirect to Login if NOT logged in
 app.get(['/', '/index.html'], (req, res, next) => {
     const session = getSession(req);
-    if (!session || !session.isValid) {
-        return res.redirect('/login.html');
-    }
+    if (!session || !session.isValid) return res.redirect('/login.html');
     next();
 });
 
 app.use(express.static('public'));
 
 const HOST = 'https://openproject.softdebut.com';
-// Note: All API authentication now uses user's API key from login cookie
 
-// Helper to execute fetch inside Puppeteer
+// Improved Puppeteer Fetch for Cloudflare Bypass
 async function puppeteerFetch(url, options = {}, specificApiKey = null, timeoutMs = 60000) {
-    const browser = await puppeteer.launch({
-        headless: 'new',
-        args: [
+    let browser = null;
+    try {
+        const launchArgs = [
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
             '--disable-accelerated-2d-canvas',
             '--no-first-run',
             '--no-zygote',
-            '--disable-gpu'
-        ]
-    });
+            '--disable-gpu',
+            '--disable-extensions'
+        ];
 
-    // Determine correctness of key (Priority: Specific > Global)
-    const keyToUse = specificApiKey; // Only use specific API key (from user's cookie)
-    const authString = keyToUse ? Buffer.from(`apikey:${keyToUse}`).toString('base64') : null;
-    let page;
+        // Specific config for Docker/Linux if Chromium is at system path
+        const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || undefined;
 
-    try {
-        page = await browser.newPage();
-        console.log('[puppeteerFetch] Browser launched, new page created');
+        console.log(`[Puppeteer] Launching... (Path: ${executablePath || 'bundled'})`);
 
-        // Optimize viewport
+        browser = await puppeteer.launch({
+            headless: 'new',
+            executablePath: executablePath,
+            args: launchArgs
+        });
+
+        const page = await browser.newPage();
         await page.setViewport({ width: 1920, height: 1080 });
 
-        // Handle HTTP Basic Auth popup
+        // Authenticate (Basic Auth) - Helps if CF allows authorized traffic
+        const keyToUse = specificApiKey;
         if (keyToUse) {
-            await page.authenticate({
-                username: 'apikey',
-                password: keyToUse
-            });
-            console.log('[puppeteerFetch] Authentication set');
+            await page.authenticate({ username: 'apikey', password: keyToUse });
         }
 
-        // We visit the actual page to set cookies
+        // --- Navigate with Error Handling ---
         try {
-            console.log('[puppeteerFetch] Navigating to HOST...');
-            // Reduced navigation timeout to 5s to speed up
-            await page.goto(`${HOST}`, { waitUntil: 'domcontentloaded', timeout: 5000 });
-            console.log('[puppeteerFetch] Navigation complete');
-        } catch (e) {
-            console.log('[puppeteerFetch] Main page load warning:', e.message);
-        }
+            // Go to target URL (or Host first if needed to set cookies)
+            // If checking API directly, we might trigger JSON view
+            console.log(`[Puppeteer] Navigating to ${url}...`);
 
-        console.log('[puppeteerFetch] Starting page.evaluate for:', url);
-        const result = await page.evaluate(async (endpoint, fetchOptions, auth, timeoutMs) => {
-            try {
-                const controller = new AbortController();
-                const id = setTimeout(() => controller.abort(), timeoutMs); // Custom timeout
-
-                const headers = {
-                    'Authorization': `Basic ${auth}`,
-                    'Content-Type': 'application/json',
-                    ...fetchOptions.headers
-                };
-
-                const response = await fetch(endpoint, {
-                    ...fetchOptions,
-                    headers: headers,
-                    signal: controller.signal
-                });
-                clearTimeout(id);
-
-                const text = await response.text();
-                try {
-                    return {
-                        status: response.status,
-                        data: JSON.parse(text)
-                    };
-                } catch {
-                    return {
-                        status: response.status,
-                        data: text,
-                        error: 'Failed to parse JSON response form API'
-                    };
-                }
-            } catch (err) {
-                return { status: 500, error: err.toString() };
+            // Set Headers (mimic fetch options)
+            if (options.headers) {
+                await page.setExtraHTTPHeaders(options.headers);
             }
-        }, url, options, authString, timeoutMs);
 
-        if (result.status >= 400) {
-            console.log('[puppeteerFetch] Error Data:', JSON.stringify(result.data).substring(0, 500));
+            // Determine method
+            const method = options.method || 'GET';
+
+            if (method === 'GET') {
+                const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+                const content = await page.evaluate(() => document.body.innerText); // Try to get raw text
+
+                // Attempt JSON Parse
+                try {
+                    return { status: response.status(), data: JSON.parse(content) };
+                } catch {
+                    return { status: response.status(), data: content }; // Fallback to text (maybe HTML error)
+                }
+
+            } else {
+                // For POST/PUT, we use page.evaluate to run fetch inside the browser context
+                // This uses the Browser's Fetch (passing CF checks)
+                const result = await page.evaluate(async (endpoint, opts, authKey) => {
+                    const headers = {
+                        'Content-Type': 'application/json',
+                        ...opts.headers
+                    };
+                    if (authKey) headers['Authorization'] = 'Basic ' + btoa('apikey:' + authKey);
+
+                    try {
+                        const res = await fetch(endpoint, {
+                            method: opts.method,
+                            headers: headers,
+                            body: opts.body
+                        });
+                        const txt = await res.text();
+                        try { return { status: res.status, data: JSON.parse(txt) }; }
+                        catch { return { status: res.status, data: txt }; }
+                    } catch (e) {
+                        return { status: 500, error: e.toString() };
+                    }
+                }, url, options, keyToUse);
+
+                return result;
+            }
+
+        } catch (e) {
+            console.error('[Puppeteer] Navigation/Eval Error:', e.message);
+            return { status: 500, error: e.message };
         }
-        console.log('[puppeteerFetch] Result status:', result.status, 'error:', result.error || 'none');
-        return result;
 
     } catch (error) {
-        console.error('Puppeteer Error:', error);
-        throw error;
+        console.error('[Puppeteer] Critical Error:', error);
+        return { status: 500, error: error.message };
     } finally {
         if (browser) await browser.close();
     }
 }
 
-// Reuseable Browser Session Helpers
-async function createBrowserSession(apiKey) {
-    console.log('[BrowserSession] Starting new session...');
-    const browser = await puppeteer.launch({
-        headless: 'new',
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--no-zygote',
-            '--disable-gpu'
-        ]
-    });
+// Session Helpers (Mapped to PuppeteerFetch)
+async function createBrowserSession(apiKey) { return { apiKey }; }
+async function fetchWithSession(session, url, options = {}) { return await puppeteerFetch(url, options, session.apiKey); }
 
-    try {
-        const page = await browser.newPage();
-        await page.setViewport({ width: 1920, height: 1080 });
-
-        if (apiKey) {
-            await page.authenticate({ username: 'apikey', password: apiKey });
-        }
-
-        // Initialize session
-        await page.goto(`${HOST}`, { waitUntil: 'domcontentloaded', timeout: 8000 }).catch(e => console.log('Session init nav warning:', e.message));
-
-        return { browser, page, apiKey };
-    } catch (e) {
-        await browser.close();
-        throw e;
-    }
-}
-
-async function fetchWithSession(session, url, options = {}, timeoutMs = 30000) {
-    const { page, apiKey } = session;
-    const authString = apiKey ? Buffer.from(`apikey:${apiKey}`).toString('base64') : null;
-
-    return await page.evaluate(async (endpoint, fetchOptions, auth, timeoutMs) => {
-        try {
-            const controller = new AbortController();
-            const id = setTimeout(() => controller.abort(), timeoutMs);
-
-            const headers = {
-                'Authorization': `Basic ${auth}`,
-                'Content-Type': 'application/json',
-                ...fetchOptions.headers
-            };
-
-            const response = await fetch(endpoint, {
-                ...fetchOptions,
-                headers: headers,
-                signal: controller.signal
-            });
-            clearTimeout(id);
-
-            const text = await response.text();
-            try {
-                return {
-                    status: response.status,
-                    data: JSON.parse(text)
-                };
-            } catch {
-                return {
-                    status: response.status,
-                    data: text,
-                    error: 'Failed to parse JSON response form API'
-                };
-            }
-        } catch (err) {
-            return { status: 500, error: err.toString() };
-        }
-    }, url, options, authString, timeoutMs);
-}
+// (Legacy helpers removed to avoid duplication)
 
 const sqlite3 = require('sqlite3').verbose();
 const fs = require('fs');

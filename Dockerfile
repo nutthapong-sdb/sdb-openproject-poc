@@ -1,7 +1,7 @@
 # Use Node.js 20 (Debian Bookworm)
 FROM node:20
 
-# Install Chromium and necessary fonts
+# Install Chromium and necessary fonts to support Puppeteer on Linux
 RUN apt-get update && apt-get install -y \
     chromium \
     fonts-thai-tlwg \
@@ -20,6 +20,7 @@ COPY package*.json ./
 
 # Install npm dependencies
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 RUN npm ci --only=production
 
 # Copy application source
