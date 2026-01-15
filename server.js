@@ -643,7 +643,7 @@ app.get('/api/projects/:id/assignees', (req, res) => {
 // GET History for current user
 // GET History for current user (with Pagination)
 app.get('/api/history', (req, res) => {
-    const userId = req.cookies.user_id;
+    const userId = req.cookies.sdb_session;
     if (!userId) {
         return res.status(401).json({ error: 'Not authenticated' });
     }
@@ -682,7 +682,7 @@ app.get('/api/history', (req, res) => {
 
 // POST Add to History
 app.post('/api/history', (req, res) => {
-    const userId = req.cookies.user_id;
+    const userId = req.cookies.sdb_session;
     if (!userId) {
         return res.status(401).json({ error: 'Not authenticated' });
     }
@@ -704,7 +704,7 @@ app.post('/api/history', (req, res) => {
 
 // DELETE from History (local DB only)
 app.delete('/api/history/:id', (req, res) => {
-    const userId = req.cookies.user_id;
+    const userId = req.cookies.sdb_session;
     if (!userId) {
         return res.status(401).json({ error: 'Not authenticated' });
     }
