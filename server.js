@@ -105,8 +105,17 @@ async function puppeteerFetch(url, options = {}, specificApiKey = null, timeoutM
                 }
 
             } else {
-                // ... (Keep POST logic same, or add similar screenshot logic if needed ...
-                // For brevity, skipping logic duplication inside page.evaluate unless requested
+                // For POST/PUT/DELETE, we rely on page.evaluate fetch to bypass cloudflare fully
+                // BUT we must navigate to the domain first to avoid CORS (Origin: null)
+                const targetUrl = new URL(url);
+                try {
+                    // Navigate to a harmless page on the same domain (e.g., login or root)
+                    await page.goto(`${targetUrl.origin}/login`, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+                } catch (navErr) {
+                    console.warn(`[Puppeteer] Pre-navigation warning: ${navErr.message}`);
+                    // Continue anyway, maybe it loaded partial
+                }
+
                 const result = await page.evaluate(async (endpoint, opts, authKey) => {
                     const headers = {
                         'Content-Type': 'application/json',
@@ -721,7 +730,7 @@ app.delete('/api/history/:id', (req, res) => {
 // API to create Work Package
 app.post('/api/work_packages', async (req, res) => {
     const { projectId, subject, description, assigneeId, typeId, startDate, dueDate, percentageDone, spentHours } = req.body;
-    const userApiKey = req.cookies.user_apikey; // Get user's API key from login session
+    const userApiKey = req.cookies.user_apikey;
 
     if (!userApiKey) {
         return res.status(401).json({ error: 'Not authenticated. Please login.' });
@@ -732,44 +741,39 @@ app.post('/api/work_packages', async (req, res) => {
     }
 
     try {
-        let openProjectAssigneeId = null;
+        let openProjectAssigneeId = assigneeId; // Default to assuming it's already an OP ID
 
-        // Lookup OpenProject ID from Local DB if assigneeId is provided
+        // Optional: Lookup in local DB if we suspect it's a local mapping ID 
+        // But since we aligned IDs, direct usage is safer. We'll keep DB check just in case.
         if (assigneeId) {
-            const assignee = await new Promise((resolve, reject) => {
-                db.get("SELECT openproject_id FROM local_assignees WHERE id = ?", [assigneeId], (err, row) => {
-                    if (err) reject(err);
-                    else resolve(row);
-                });
+            const assignee = await new Promise((resolve) => {
+                db.get("SELECT openproject_id FROM local_assignees WHERE id = ?", [assigneeId], (err, row) => resolve(row));
             });
             if (assignee && assignee.openproject_id) {
                 openProjectAssigneeId = assignee.openproject_id;
             }
         }
 
-        console.log(`Creating Task '${subject}' in Project ${projectId} with Assignee OP-ID: ${openProjectAssigneeId}...`);
+        console.log(`Creating Task '${subject.substring(0, 20)}...' in Project ${projectId} (Assignee: ${openProjectAssigneeId})...`);
         const url = `${HOST}/api/v3/projects/${projectId}/work_packages`;
 
         const payload = {
             subject: subject.trim(),
-            description: { raw: description ? description.trim() : "" }, // Add Description
+            description: { raw: description ? description.trim() : "" },
             percentageDone: parseInt(percentageDone) || 0,
             startDate: startDate || null,
             dueDate: dueDate || null,
             "_links": {
                 "type": {
-                    "href": `/api/v3/types/${typeId || 1}` // Use provided Type ID or default to 1 (Task)
+                    "href": `/api/v3/types/${typeId || 1}`
                 }
             }
         };
 
         if (openProjectAssigneeId) {
-            payload._links.assignee = {
-                href: `/api/v3/users/${openProjectAssigneeId}`
-            };
+            payload._links.assignee = { href: `/api/v3/users/${openProjectAssigneeId}` };
         }
 
-        // Clean up nulls
         if (!payload.startDate) delete payload.startDate;
         if (!payload.dueDate) delete payload.dueDate;
 
@@ -779,27 +783,36 @@ app.post('/api/work_packages', async (req, res) => {
         }, userApiKey);
 
         if (result.status >= 200 && result.status < 300) {
+            // Check if actual JSON
+            if (typeof result.data !== 'object') {
+                console.error('[CreateTask] Unexpected non-object response:', result.data);
+                return res.status(500).json({ error: 'OpenProject returned invalid data (likely Cloudflare block)' });
+            }
+
             const newWorkPackageId = result.data.id;
             const webUrl = `${HOST}/work_packages/${newWorkPackageId}`;
 
-            // --- Log Time Logic ---
-            let timeLogged = false;
-            let timeError = null;
+            // --- History Log ---
+            const sdbSession = req.cookies.sdb_session;
+            const dateStr = new Date().toISOString().split('T')[0];
+            db.run("INSERT INTO task_history (date, task_name, hours, user_id) VALUES (?, ?, ?, ?)",
+                [dateStr, subject, spentHours || 0, sdbSession], (err) => {
+                    if (err) console.error("Failed to log history", err);
+                });
+            // -------------------
 
+            // --- Log Time Logic ---
+            let timeError = null;
             if (spentHours && parseFloat(spentHours) > 0) {
                 console.log(`Logging ${spentHours} hours for WP #${newWorkPackageId}...`);
                 const timeUrl = `${HOST}/api/v3/time_entries`;
-
-                // Construct ISO duration (PT<N>H)
-                // If float (e.g. 1.5), ISO duration supports PT1.5H or PT1H30M.
-                // OpenProject usually supports PT1.5H.
                 const isoDuration = `PT${spentHours}H`;
                 const dateToLog = startDate || new Date().toISOString().split('T')[0];
 
                 const timePayload = {
                     "_links": {
                         "workPackage": { "href": `/api/v3/work_packages/${newWorkPackageId}` },
-                        "activity": { "href": "/api/v3/time_entries/activities/1" } // Corrected URI as per API error
+                        "activity": { "href": "/api/v3/time_entries/activities/1" }
                     },
                     "hours": isoDuration,
                     "spentOn": dateToLog,
@@ -811,13 +824,9 @@ app.post('/api/work_packages', async (req, res) => {
                     body: JSON.stringify(timePayload)
                 }, userApiKey);
 
-                if (timeResult.status >= 200 && timeResult.status < 300) {
-                    timeLogged = true;
-                    console.log('Time entry created successfully.');
-                } else {
-                    timeError = timeResult.data.message || 'Failed to create time entry'; // Try to extract error
-                    // If activity ID 1 is invalid, it might fail.
-                    console.error('Failed to log time:', timeResult.status, JSON.stringify(timeResult.data));
+                if (timeResult.status < 200 || timeResult.status >= 300) {
+                    timeError = (typeof timeResult.data === 'object' ? timeResult.data.message : 'Failed to log time') || 'Unknown Time Error';
+                    console.error('Failed to log time:', timeResult.status, timeError);
                 }
             }
             // ---------------------
@@ -825,13 +834,21 @@ app.post('/api/work_packages', async (req, res) => {
             res.json({
                 ...result.data,
                 webUrl,
-                timeLogged,
                 timeError: timeError ? `Note: Task created, but failed to log time (${timeError})` : null
             });
         } else {
-            res.status(result.status).json(result.data);
+            // Error Handling: Ensure JSON
+            console.error('[CreateTask] API Error:', result.status, result.data);
+            const errMsg = (typeof result.data === 'object' && result.data.message)
+                ? result.data.message
+                : (typeof result.data === 'string' && result.data.includes('<!DOCTYPE'))
+                    ? 'Blocked by Cloudflare (HTML Response)'
+                    : 'Unknown Error from OpenProject';
+
+            res.status(result.status).json({ error: errMsg, details: result.data });
         }
     } catch (error) {
+        console.error('[CreateTask] Exception:', error);
         res.status(500).json({ error: error.message });
     }
 });
