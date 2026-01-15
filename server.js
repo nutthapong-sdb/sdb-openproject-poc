@@ -729,7 +729,7 @@ app.delete('/api/history/:id', (req, res) => {
 
 // API to create Work Package
 app.post('/api/work_packages', async (req, res) => {
-    const { projectId, subject, description, assigneeId, typeId, startDate, dueDate, percentageDone, spentHours } = req.body;
+    const { projectId, projectName, subject, description, assigneeId, typeId, startDate, dueDate, percentageDone, spentHours } = req.body;
     const userApiKey = req.cookies.user_apikey;
 
     if (!userApiKey) {
@@ -794,11 +794,16 @@ app.post('/api/work_packages', async (req, res) => {
 
             // --- History Log ---
             const sdbSession = req.cookies.sdb_session;
-            const dateStr = new Date().toISOString().split('T')[0];
-            db.run("INSERT INTO task_history (date, task_name, hours, user_id) VALUES (?, ?, ?, ?)",
-                [dateStr, subject, spentHours || 0, sdbSession], (err) => {
+            const nowIso = new Date().toISOString();
+            // Schema: user_id, openproject_id, subject, project_name, start_date, due_date, spent_hours, web_url, created_at
+            db.run(
+                `INSERT INTO task_history (user_id, openproject_id, subject, project_name, start_date, due_date, spent_hours, web_url, created_at) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [sdbSession, newWorkPackageId, subject, projectName || 'Unknown', startDate || null, dueDate || null, spentHours || 0, webUrl, nowIso],
+                (err) => {
                     if (err) console.error("Failed to log history", err);
-                });
+                }
+            );
             // -------------------
 
             // --- Log Time Logic ---
@@ -971,7 +976,7 @@ app.get('/api/users-stats', (req, res) => {
 // GET Weekly Stats for Chart
 // GET Weekly Stats for Chart (From OpenProject)
 app.get('/api/weekly-stats', async (req, res) => {
-    const userId = req.cookies.user_id; // OpenProject User ID
+    const userId = req.cookies.sdb_session; // OpenProject User ID
     const apiKey = req.cookies.user_apikey;
 
     if (!userId || !apiKey) {

@@ -864,6 +864,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 },
                 body: JSON.stringify({
                     projectId,
+                    projectName: $('#projectId').find(':selected').text(),
                     subject,
                     description,
                     typeId,
@@ -914,16 +915,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                     location.reload();
                 });
 
-                // Update History
-                await addToHistory({
-                    subject: subject,
-                    projectName: $('#projectId').find(':selected').text() || 'Unknown Project',
-                    webUrl: result.webUrl,
-                    startDate: startDate,
-                    dueDate: dueDate,
-                    spentHours: spentHours,
-                    id: result.id
-                });
+                // History Updated by Backend
+                console.log('History logged by server.');
 
                 // Save Last Used Project
                 localStorage.setItem('lastProject', JSON.stringify({
