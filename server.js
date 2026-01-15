@@ -1088,34 +1088,50 @@ app.post('/api/register', async (req, res) => {
         if (row) return res.status(400).json({ error: 'Username already taken.' });
 
         try {
-            const result = await puppeteerFetch(`${HOST}/api/v3/users/me`, { method: 'GET' }, apikey);
+            // Check if DB is empty to assign ROOT role
+            db.get("SELECT COUNT(*) as count FROM users", [], async (err, rowCount) => {
+                if (err) return res.status(500).json({ error: 'Database check error' });
 
-            if (result.status >= 200 && result.status < 300) {
-                const opUser = result.data;
-                const hashedPassword = await bcrypt.hash(password, 10);
-                const opId = opUser.id.toString();
+                const isFirstUser = rowCount.count === 0;
+                const role = isFirstUser ? 'root' : 'user';
 
-                db.run(
-                    'INSERT INTO users (username, password, name, api_key, role, openproject_id) VALUES (?, ?, ?, ?, ?, ?)',
-                    [username, hashedPassword, name, apikey, 'user', opId],
-                    function (err) {
-                        if (err) return res.status(500).json({ error: 'Database error: ' + err.message });
+                console.log(`[Register] Checking API Key for ${username}...`);
+                const result = await puppeteerFetch(`${HOST}/api/v3/users/me`, { method: 'GET' }, apikey);
 
-                        const newUserId = this.lastID;
-                        res.cookie('sdb_session', newUserId.toString(), { httpOnly: true, maxAge: 30 * 24 * 60 * 60 * 1000 });
-                        res.cookie('user_apikey', apikey, { httpOnly: true, maxAge: 30 * 24 * 60 * 60 * 1000 });
-                        res.cookie('user_id', opUser.id || '0', { httpOnly: true, maxAge: 30 * 24 * 60 * 60 * 1000 });
-                        res.cookie('user_name', encodeURIComponent(name), { httpOnly: true, maxAge: 30 * 24 * 60 * 60 * 1000 });
+                if (result.status >= 200 && result.status < 300) {
+                    const opUser = result.data;
+                    const hashedPassword = await bcrypt.hash(password, 10);
+                    const opId = opUser.id.toString();
 
-                        res.json({
-                            message: 'Registration successful',
-                            user: { id: opUser.id, name: name }
-                        });
-                    }
-                );
-            } else {
-                res.status(401).json({ error: 'Invalid API Key.' });
-            }
+                    console.log(`[Register] Creating user ${username} (Role: ${role}, OP-ID: ${opId})`);
+
+                    // Force ID = OpenProject ID for consistency
+                    db.run(
+                        'INSERT INTO users (id, username, password, name, api_key, role, openproject_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                        [opUser.id, username, hashedPassword, name, apikey, role, opId],
+                        async function (err) {
+                            if (err) {
+                                // If insert fails (maybe duplicate ID), try fallback without explicit ID? 
+                                // But we want explicit ID. So report error.
+                                return res.status(500).json({ error: 'Database insert error: ' + err.message });
+                            }
+
+                            const newUserId = opUser.id; // Correct ID usage
+                            res.cookie('sdb_session', newUserId.toString(), { httpOnly: true, maxAge: 30 * 24 * 60 * 60 * 1000 });
+                            res.cookie('user_apikey', apikey, { httpOnly: true, maxAge: 30 * 24 * 60 * 60 * 1000 });
+                            res.cookie('user_id', opId, { httpOnly: true, maxAge: 30 * 24 * 60 * 60 * 1000 });
+                            res.cookie('user_name', encodeURIComponent(name), { httpOnly: true, maxAge: 30 * 24 * 60 * 60 * 1000 });
+
+                            res.json({
+                                message: 'Registration successful',
+                                user: { id: newUserId, name: name, role: role }
+                            });
+                        }
+                    );
+                } else {
+                    res.status(401).json({ error: 'Invalid API Key or Cloudflare blocked.' });
+                }
+            });
         } catch (e) {
             console.error('Registration Error:', e);
             res.status(500).json({ error: 'Server error during verification.' });
