@@ -9,12 +9,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             const userData = await userRes.json();
             currentUserId = userData.id; // Store user ID
             const displayName = userData.firstName ? `${userData.firstName} ${userData.lastName}` : (userData.name || 'User');
-            // Show OpenProject ID in header
-            document.getElementById('userNameDisplay').textContent = `${displayName} (${userData.id})`;
+            // Show OpenProject ID and Role in header
+            const roleDisplay = userData.role ? `[${userData.role}]` : '';
+            document.getElementById('userNameDisplay').textContent = `${displayName} ${roleDisplay}`;
 
-            // Show Settings (with Admin Panel inside) only for admin role
-            // Show Settings (with Admin Panel inside) only for admin role
-            if (userData.role === 'admin') {
+            // Show Settings (with Admin Panel inside) for admin or root role
+            if (userData.role === 'admin' || userData.role === 'root') {
                 $('#settingsWrapper').show();
             }
         }
