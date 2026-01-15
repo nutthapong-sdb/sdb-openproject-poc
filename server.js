@@ -61,7 +61,7 @@ async function puppeteerFetch(url, options = {}, specificApiKey = null, timeoutM
         console.log(`[Puppeteer] Launching... Path: ${executablePath}`);
 
         browser = await puppeteer.launch({
-            headless: true,
+            headless: 'shell',
             executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
             args: launchArgs,
             dumpio: true

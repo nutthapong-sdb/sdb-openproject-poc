@@ -28,6 +28,9 @@ COPY . .
 
 # Create non-root user for security
 RUN groupadd -r appuser && useradd -r -g appuser appuser
+# Set HOME environment variable needed for Chromium
+ENV HOME=/home/appuser
+RUN mkdir -p /home/appuser && chown -R appuser:appuser /home/appuser
 
 # Create data directory for Named Volume and set ownership
 RUN mkdir -p /app/data && chown -R appuser:appuser /app/data
