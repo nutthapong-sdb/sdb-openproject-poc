@@ -230,89 +230,121 @@ function saveProjectsToDB(projects) {
 
 // Helper to Sync All Projects (Global) with Types using Session
 // Helper to Sync All Projects (Global) with Types using PuppeteerFetch
+// Helper to Sync All Projects (Global) with Types using Persistent Browser Session
 async function syncAllProjects(apiKey) {
     if (!apiKey) return;
 
-    console.log(`Syncing ALL projects and types (PuppeteerFetch)...`);
+    console.log(`Syncing ALL projects and types (Single Browser Session)...`);
+    
+    // Launch Browser Manually
+    const browser = await puppeteer.launch({
+        headless: 'shell', 
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--disable-gpu',
+            '--no-first-run',
+            '--no-zygote',
+            '--disable-notifications',
+            '--disable-extensions',
+            '--mute-audio'
+        ],
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined
+    });
+
+    let typeCount = 0;
 
     try {
-        // 1. Fetch Projects
-        const result = await puppeteerFetch(`${HOST}/api/v3/projects?pageSize=500`, { method: 'GET' }, apiKey);
+        const page = await browser.newPage();
 
-        if (result.status !== 200) {
-            console.error(`[SyncProjects] Failed to fetch projects. Status: ${result.status}`);
-            const bodyPreview = typeof result.data === 'string' ? result.data.substring(0, 500) : JSON.stringify(result.data).substring(0, 500);
-            console.error(`[SyncProjects] Body Preview: ${bodyPreview}`);
-            throw new Error(`Failed to fetch projects (Status ${result.status})`);
-        }
-
-        // Check data structure
-        if (!result.data || !result.data._embedded || !result.data._embedded.elements) {
-            console.error(`[SyncProjects] Invalid JSON Structure. Data:`, JSON.stringify(result.data).substring(0, 200));
-            throw new Error('Invalid JSON structure from OpenProject');
-        }
-
-        const projects = result.data._embedded.elements;
-        console.log(`Found ${projects.length} projects. Syncing types...`);
-
-        db.serialize(() => {
-            db.run("BEGIN TRANSACTION");
-            const now = new Date().toISOString();
-
-            // Projects Upsert
-            const upsertStmt = db.prepare(`
-                INSERT INTO projects (project_id, name, updated_at) 
-                VALUES (?, ?, ?)
-                ON CONFLICT(project_id) DO UPDATE SET
-                name = excluded.name,
-                updated_at = excluded.updated_at
-            `);
-
-            projects.forEach(p => {
-                upsertStmt.run(p.id.toString(), p.name, now);
-            });
-            upsertStmt.finalize();
-            db.run("COMMIT");
+        // 1. Set Authorization Header Globally for this page
+        // OpenProject API accepts Basic Auth (apikey:<key>)
+        const authString = 'Basic ' + Buffer.from('apikey:' + apiKey).toString('base64');
+        await page.setExtraHTTPHeaders({
+            'Authorization': authString,
+            'Accept': 'application/json'
         });
 
-        // 2. Fetch Types for each project
-        let typeCount = 0;
-
-        // Use a concurrency limit or sequential to avoid overwhelming/detecting
-        // For safety, sequential is best with Puppeteer
-        for (const p of projects) {
-            try {
-                // Short timeout for type checks
-                const typeRes = await puppeteerFetch(`${HOST}/api/v3/projects/${p.id}/types`, { method: 'GET' }, apiKey, 8000);
-
-                if (typeRes.status === 200 && typeRes.data && typeRes.data._embedded && typeRes.data._embedded.elements) {
-                    const types = typeRes.data._embedded.elements;
-
-                    await new Promise((resolve) => {
-                        db.serialize(() => {
-                            db.run("BEGIN TRANSACTION");
-                            const typeStmt = db.prepare("INSERT OR REPLACE INTO project_types (project_id, type_id, type_name) VALUES (?, ?, ?)");
-                            types.forEach(t => {
-                                typeStmt.run(p.id.toString(), t.id.toString(), t.name);
-                                typeCount++;
-                            });
-                            typeStmt.finalize();
-                            db.run("COMMIT", resolve);
-                        });
-                    });
-                }
-            } catch (err) {
-                // Non-critical, just log sync failure for types
-                console.log(`[SyncProjects] Type sync failed for Project ${p.id}: ${err.message}`);
-            }
+        // 2. Fetch Projects
+        // Note: For API endpoints that return JSON, we read document.body.innerText
+        const projectsUrl = `${HOST}/api/v3/projects?pageSize=500`;
+        console.log(`[Sync] Fetching Projects List...`);
+        
+        await page.goto(projectsUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        const projectsContent = await page.evaluate(() => document.body.innerText);
+        
+        let projectsData;
+        try {
+            projectsData = JSON.parse(projectsContent);
+        } catch (e) {
+            console.error(`[Sync] Failed to parse Projects JSON. Content: ${projectsContent.substring(0,200)}...`);
+            throw new Error('Invalid JSON from Projects API');
         }
 
-        console.log(`Synced Types: ${typeCount}`);
-        return projects.length;
+        if (projectsData && projectsData._embedded && projectsData._embedded.elements) {
+            const projects = projectsData._embedded.elements;
+            console.log(`[Sync] Found ${projects.length} projects. Fetching types...`);
 
-    } catch (e) {
-        console.error("Failed to sync projects:", e.message);
-        throw e;
+            // DB Upsert Projects
+            db.serialize(() => {
+                db.run("BEGIN TRANSACTION");
+                const now = new Date().toISOString();
+                const upsertStmt = db.prepare(`
+                    INSERT INTO projects (project_id, name, updated_at) 
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(project_id) DO UPDATE SET
+                    name = excluded.name,
+                    updated_at = excluded.updated_at
+                `);
+                projects.forEach(p => upsertStmt.run(p.id.toString(), p.name, now));
+                upsertStmt.finalize();
+                db.run("COMMIT");
+            });
+
+            // 3. Loop Fetch Types (Using SAME Page)
+            for (const p of projects) {
+                try {
+                    const typeUrl = `${HOST}/api/v3/projects/${p.id}/types`;
+                    // console.log(`[Sync] Fetching types for Project ${p.id}...`); // Too verbose
+                    
+                    await page.goto(typeUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
+                    const typeContent = await page.evaluate(() => document.body.innerText);
+                    const typeData = JSON.parse(typeContent);
+
+                    if (typeData && typeData._embedded && typeData._embedded.elements) {
+                        const types = typeData._embedded.elements;
+                        
+                        await new Promise((resolve) => {
+                            db.serialize(() => {
+                                db.run("BEGIN TRANSACTION");
+                                const typeStmt = db.prepare("INSERT OR REPLACE INTO project_types (project_id, type_id, type_name) VALUES (?, ?, ?)");
+                                types.forEach(t => {
+                                    typeStmt.run(p.id.toString(), t.id.toString(), t.name);
+                                    typeCount++;
+                                });
+                                typeStmt.finalize();
+                                db.run("COMMIT", resolve);
+                            });
+                        });
+                    }
+                } catch (err) {
+                    console.log(`[Sync] Failed types for Project ${p.id}: ${err.message}`);
+                }
+            }
+            
+            console.log(`[Sync] Completed. Total Types Synced: ${typeCount}`);
+            return projects.length;
+        }
+
+    } catch (error) {
+        console.error("Failed to sync projects:", error);
+    } finally {
+        if (browser) {
+            console.log('[Sync] Closing Browser...');
+            await browser.close();
+        }
     }
 }
 
