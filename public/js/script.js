@@ -815,8 +815,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         const projectId = $('#projectId').val();
         let assigneeId = $('#assigneeId').val();
         const typeId = $('#taskType').val(); // Get Type ID
-        const subject = document.getElementById('taskName').value;
-        const description = document.getElementById('taskDescription').value; // Get Description
+        // Helper to ensure Plain Text (Strip HTML)
+        const toPlainText = (str) => {
+            if (!str) return '';
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(str, 'text/html');
+            return doc.body.textContent || '';
+        };
+
+        const subject = toPlainText(document.getElementById('taskName').value);
+        const description = toPlainText(document.getElementById('taskDescription').value); // Get Description
 
         // Auto-Assign Self if empty
         if (!assigneeId) {

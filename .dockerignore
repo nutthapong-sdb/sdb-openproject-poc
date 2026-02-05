@@ -6,8 +6,10 @@ README.md
 .env
 .env.local
 .DS_Store
-database.db
+# Database files - Ignored to prevent overwriting server data
 projects.db
+projects.db*
+database.db
 *.log
 .vscode
 .idea
