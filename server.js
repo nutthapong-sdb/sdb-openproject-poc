@@ -199,6 +199,23 @@ db.serialize(() => {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
 
+    // New isolated Ranking Table
+    db.run(`CREATE TABLE IF NOT EXISTS ranking_scores (
+        user_id TEXT PRIMARY KEY,
+        score INTEGER DEFAULT 0
+    )`, (err) => {
+        if (!err) {
+            // Migrate existing count on startup if the table was just created
+            // We use INSERT OR IGNORE so it only seeds once
+            db.run(`
+                INSERT OR IGNORE INTO ranking_scores (user_id, score)
+                SELECT h.user_id, COUNT(h.id) 
+                FROM task_history h
+                GROUP BY h.user_id
+            `);
+        }
+    });
+
     db.run("CREATE TABLE IF NOT EXISTS user_project_mapping (user_id TEXT, project_id TEXT, PRIMARY KEY(user_id, project_id))");
     db.run("CREATE TABLE IF NOT EXISTS project_types (project_id TEXT, type_id TEXT, type_name TEXT, PRIMARY KEY(project_id, type_id))");
 });
@@ -235,10 +252,10 @@ async function syncAllProjects(apiKey) {
     if (!apiKey) return;
 
     console.log(`Syncing ALL projects and types (Single Browser Session)...`);
-    
+
     // Launch Browser Manually
     const browser = await puppeteer.launch({
-        headless: 'shell', 
+        headless: 'shell',
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -271,15 +288,15 @@ async function syncAllProjects(apiKey) {
         // Note: For API endpoints that return JSON, we read document.body.innerText
         const projectsUrl = `${HOST}/api/v3/projects?pageSize=500`;
         console.log(`[Sync] Fetching Projects List...`);
-        
+
         await page.goto(projectsUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
         const projectsContent = await page.evaluate(() => document.body.innerText);
-        
+
         let projectsData;
         try {
             projectsData = JSON.parse(projectsContent);
         } catch (e) {
-            console.error(`[Sync] Failed to parse Projects JSON. Content: ${projectsContent.substring(0,200)}...`);
+            console.error(`[Sync] Failed to parse Projects JSON. Content: ${projectsContent.substring(0, 200)}...`);
             throw new Error('Invalid JSON from Projects API');
         }
 
@@ -308,14 +325,14 @@ async function syncAllProjects(apiKey) {
                 try {
                     const typeUrl = `${HOST}/api/v3/projects/${p.id}/types`;
                     // console.log(`[Sync] Fetching types for Project ${p.id}...`); // Too verbose
-                    
+
                     await page.goto(typeUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
                     const typeContent = await page.evaluate(() => document.body.innerText);
                     const typeData = JSON.parse(typeContent);
 
                     if (typeData && typeData._embedded && typeData._embedded.elements) {
                         const types = typeData._embedded.elements;
-                        
+
                         await new Promise((resolve) => {
                             db.serialize(() => {
                                 db.run("BEGIN TRANSACTION");
@@ -333,7 +350,7 @@ async function syncAllProjects(apiKey) {
                     console.log(`[Sync] Failed types for Project ${p.id}: ${err.message}`);
                 }
             }
-            
+
             console.log(`[Sync] Completed. Total Types Synced: ${typeCount}`);
             return projects.length;
         }
@@ -728,6 +745,11 @@ app.post('/api/history', (req, res) => {
             if (err) {
                 return res.status(500).json({ error: err.message });
             }
+            db.run(`
+                INSERT INTO ranking_scores (user_id, score) 
+                VALUES (?, 1) 
+                ON CONFLICT(user_id) DO UPDATE SET score = score + 1
+            `, [userId]);
             res.json({ id: this.lastID, message: 'Added to history' });
         }
     );
@@ -753,6 +775,14 @@ app.delete('/api/history/:id', (req, res) => {
             if (this.changes === 0) {
                 return res.status(404).json({ error: 'History item not found' });
             }
+
+            // Decrease ranking by 1, floor at 0
+            db.run(`
+                UPDATE ranking_scores 
+                SET score = MAX(0, score - 1) 
+                WHERE user_id = ?
+            `, [userId]);
+
             res.json({ message: 'Deleted from history' });
         }
     );
@@ -832,7 +862,16 @@ app.post('/api/work_packages', async (req, res) => {
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [sdbSession, newWorkPackageId, subject, projectName || 'Unknown', startDate || null, dueDate || null, spentHours || 0, webUrl, nowIso],
                 (err) => {
-                    if (err) console.error("Failed to log history", err);
+                    if (err) {
+                        console.error("Failed to log history", err);
+                    } else {
+                        // Increase ranking by 1 when history is logged
+                        db.run(`
+                            INSERT INTO ranking_scores (user_id, score) 
+                            VALUES (?, 1) 
+                            ON CONFLICT(user_id) DO UPDATE SET score = score + 1
+                        `, [sdbSession]);
+                    }
                 }
             );
             // -------------------
@@ -991,12 +1030,11 @@ app.get('/api/users-stats', (req, res) => {
     const query = `
         SELECT 
             COALESCE(u.name, a.name) as name, 
-            COUNT(h.id) as task_count
+            COALESCE(r.score, 0) as task_count
         FROM local_assignees a 
-        LEFT JOIN task_history h ON a.id = h.user_id 
+        LEFT JOIN ranking_scores r ON a.id = r.user_id 
         LEFT JOIN users u ON u.openproject_id = a.id
-        GROUP BY a.id 
-        ORDER BY task_count DESC, a.name ASC
+        ORDER BY task_count DESC, name ASC
     `;
     db.all(query, [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -1204,6 +1242,18 @@ app.post('/api/register', async (req, res) => {
 });
 
 // --- Admin Endpoints ---
+
+// Reset Ranking (Clear Task History)
+app.post('/api/admin/reset-ranking', (req, res) => {
+    const localUserId = req.cookies.sdb_session;
+    if (!localUserId) return res.status(401).json({ error: "Unauthorized" });
+
+    // Simply set all scores to 0 in the separate ranking table
+    db.run("UPDATE ranking_scores SET score = 0", [], function (err) {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ message: "Ranking counts reset successfully." });
+    });
+});
 
 // Get All Users (All logged-in users can access)
 app.get('/api/admin/users', (req, res) => {

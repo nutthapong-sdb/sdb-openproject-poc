@@ -124,7 +124,6 @@ label {
 }
 
 input[type="text"],
-input[type="number"],
 input[type="password"],
 select {
     width: 100%;
@@ -136,6 +135,29 @@ select {
     font-size: 1rem;
     transition: all 0.3s ease;
     appearance: none;
+}
+
+input[type="number"] {
+    width: 100%;
+    padding: 12px 0px;
+    /* Reduced side padding so center text is visible */
+    background-color: var(--input-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-color);
+    font-size: 1rem;
+    transition: all 0.3s ease;
+    -moz-appearance: textfield;
+    appearance: textfield;
+    /* Firefox */
+}
+
+/* Chrome, Safari, Edge, Opera */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    appearance: none;
+    margin: 0;
 }
 
 select {

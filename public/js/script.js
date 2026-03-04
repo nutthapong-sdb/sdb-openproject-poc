@@ -669,6 +669,75 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    // Reset Ranking Logic
+    const resetRankingBtn = document.getElementById('resetRankingBtn');
+    if (resetRankingBtn) {
+        resetRankingBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+
+            const result = await Swal.fire({
+                title: 'Reset Ranking?',
+                html: '<p>Are you sure you want to reset the ranking?</p><p style="color: #ff6b6b; font-size: 0.9em;">This will clear all local task history numbers to 0.</p>',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#ff6b6b',
+                cancelButtonColor: '#555',
+                confirmButtonText: 'Yes, Reset',
+                cancelButtonText: 'Cancel'
+            });
+
+            if (!result.isConfirmed) return;
+
+            const originalText = resetRankingBtn.innerText;
+            resetRankingBtn.innerText = 'Resetting...';
+            resetRankingBtn.disabled = true;
+            resetRankingBtn.style.cursor = 'wait';
+
+            try {
+                const response = await fetch('/api/admin/reset-ranking', { method: 'POST' });
+
+                // Safe JSON Parsing to prevent "Unexpected token < in JSON"
+                const resText = await response.text();
+                let resData;
+                try {
+                    resData = resText ? JSON.parse(resText) : {};
+                } catch (parseErr) {
+                    console.error('Failed to parse response:', resText);
+                    throw new Error('Server returned invalid data. Please restart your Node.js server (npm start) to apply the latest backend changes.');
+                }
+
+                if (response.ok) {
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Ranking Reset',
+                        text: 'Ranking counts have been successfully reset to 0.',
+                        timer: 2000,
+                        showConfirmButton: false
+                    });
+                    loadUserStats();
+                    loadHistory(1);
+                    loadWeeklyStats();
+                } else {
+                    throw new Error(resData.error || 'Failed to reset ranking');
+                }
+            } catch (error) {
+                console.error('Reset failed:', error);
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Reset Failed',
+                    text: error.message || 'Could not reset ranking.'
+                });
+            } finally {
+                resetRankingBtn.innerText = originalText;
+                resetRankingBtn.disabled = false;
+                resetRankingBtn.style.cursor = 'pointer';
+                if (settingsDropdown) {
+                    settingsDropdown.style.display = 'none';
+                }
+            }
+        });
+    }
+
     // Logout Logic
     const logoutBtn = document.getElementById('logoutBtn');
     if (logoutBtn) {
@@ -709,6 +778,24 @@ document.addEventListener('DOMContentLoaded', async () => {
             percentInput.value = btn.dataset.value;
         });
     });
+
+    // Time (Hr) + and - Buttons
+    const decreaseTimeBtn = document.getElementById('decreaseTimeBtn');
+    const increaseTimeBtn = document.getElementById('increaseTimeBtn');
+    const spentHoursInput = document.getElementById('spentHours');
+
+    if (decreaseTimeBtn && increaseTimeBtn && spentHoursInput) {
+        decreaseTimeBtn.addEventListener('click', () => {
+            let val = parseFloat(spentHoursInput.value) || 0;
+            if (val > 0) {
+                spentHoursInput.value = Math.max(0, val - 1);
+            }
+        });
+        increaseTimeBtn.addEventListener('click', () => {
+            let val = parseFloat(spentHoursInput.value) || 0;
+            spentHoursInput.value = val + 1;
+        });
+    }
 
     // Today Button
     document.getElementById('todayBtn').addEventListener('click', () => {
